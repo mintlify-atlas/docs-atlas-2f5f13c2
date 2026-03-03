@@ -199,7 +199,7 @@ Get client IP addresses with `nodeClientIpGetter`:
 
 ```typescript src/server.ts
 import { createHonoNodeServer, nodeClientIpGetter } from "@resolid/dev/http.server";
-import { clientIp } from "@resolid/dev/http.middleware";
+import { clientIp } from "@resolid/dev/http.server";
 
 export default await createHonoNodeServer({
   configure: async (hono) => {
@@ -214,7 +214,7 @@ Get request origin information:
 
 ```typescript src/server.ts
 import { createHonoNodeServer, nodeRequestOriginGetter } from "@resolid/dev/http.server";
-import { requestOrigin } from "@resolid/dev/http.middleware";
+import { requestOrigin } from "@resolid/dev/http.server";
 
 export default await createHonoNodeServer({
   configure: async (hono) => {

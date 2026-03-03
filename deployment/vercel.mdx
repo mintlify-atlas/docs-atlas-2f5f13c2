@@ -175,7 +175,7 @@ Vercel provides built-in request utilities:
 
 ```typescript src/server.ts
 import { createHonoVercelServer, vercelClientIpGetter } from "@resolid/dev/http.server";
-import { clientIp } from "@resolid/dev/http.middleware";
+import { clientIp } from "@resolid/dev/http.server";
 
 export default await createHonoVercelServer({
   configure: async (hono) => {
@@ -190,7 +190,7 @@ Uses the `x-real-ip` header provided by Vercel.
 
 ```typescript src/server.ts
 import { createHonoVercelServer, vercelRequestIdGenerator } from "@resolid/dev/http.server";
-import { requestId } from "@resolid/dev/http.middleware";
+import { requestId } from "@resolid/dev/http.server";
 
 export default await createHonoVercelServer({
   configure: async (hono) => {
@@ -205,7 +205,7 @@ Uses the `x-vercel-id` header for request tracing.
 
 ```typescript src/server.ts
 import { createHonoVercelServer, vercelRequestOriginGetter } from "@resolid/dev/http.server";
-import { requestOrigin } from "@resolid/dev/http.middleware";
+import { requestOrigin } from "@resolid/dev/http.server";
 
 export default await createHonoVercelServer({
   configure: async (hono) => {

@@ -56,7 +56,7 @@ async function createHonoNodeServer(
 ## Basic Usage
 
 ```typescript
-import { createHonoNodeServer } from '@resolid/dev/http';
+import { createHonoNodeServer } from '@resolid/dev/http.server';
 
 const server = await createHonoNodeServer({
   port: 3000,
@@ -151,7 +151,7 @@ The framework provides several built-in middleware:
 ### Request ID
 
 ```typescript
-import { requestId } from '@resolid/dev/http';
+import { requestId } from '@resolid/dev/http.server';
 
 const server = await createHonoNodeServer({
   configure: async (app) => {
@@ -163,7 +163,7 @@ const server = await createHonoNodeServer({
 ### Client IP
 
 ```typescript
-import { clientIp, nodeClientIpGetter } from '@resolid/dev/http';
+import { clientIp, nodeClientIpGetter } from '@resolid/dev/http.server';
 
 const server = await createHonoNodeServer({
   configure: async (app) => {
@@ -175,7 +175,7 @@ const server = await createHonoNodeServer({
 ### Request Origin
 
 ```typescript
-import { requestOrigin, nodeRequestOriginGetter } from '@resolid/dev/http';
+import { requestOrigin, nodeRequestOriginGetter } from '@resolid/dev/http.server';
 
 const server = await createHonoNodeServer({
   configure: async (app) => {
@@ -189,7 +189,7 @@ const server = await createHonoNodeServer({
 The server automatically configures cache control for static assets:
 
 ```typescript
-import { cacheControl } from '@resolid/dev/http';
+import { cacheControl } from '@resolid/dev/http.server';
 
 const server = await createHonoNodeServer({
   configure: async (app) => {
@@ -237,7 +237,7 @@ function nodeClientIpGetter(options?: GetClientIpOptions): ClientIpGetter
 **Example:**
 
 ```typescript
-import { clientIp, nodeClientIpGetter } from '@resolid/dev/http';
+import { clientIp, nodeClientIpGetter } from '@resolid/dev/http.server';
 
 app.use('*', clientIp(nodeClientIpGetter({
   headers: ['x-forwarded-for', 'x-real-ip']
@@ -257,7 +257,7 @@ function nodeRequestOriginGetter(proxy?: boolean): RequestOriginGetter
 **Example:**
 
 ```typescript
-import { requestOrigin, nodeRequestOriginGetter } from '@resolid/dev/http';
+import { requestOrigin, nodeRequestOriginGetter } from '@resolid/dev/http.server';
 
 app.use('*', requestOrigin(nodeRequestOriginGetter(true)));
 ```
@@ -300,18 +300,18 @@ type NodeEnv = {
 
 ```typescript
 import { createApp } from '@resolid/core';
-import { createHonoNodeServer, requestId, clientIp, nodeClientIpGetter } from '@resolid/dev/http';
+import { createHonoNodeServer, requestId, clientIp, nodeClientIpGetter } from '@resolid/dev/http.server';
 import { cors } from 'hono/cors';
 import { compress } from 'hono/compress';
 import { DatabaseService } from '@resolid/app-db';
 import { LogService } from '@resolid/app-log';
 
 // Create the Resolid app
-const app = createApp({
+const app = await createApp({
   // ... providers and extensions
 });
 
-await app.bootstrap();
+await app.run();
 
 // Create the HTTP server
 const server = await createHonoNodeServer({

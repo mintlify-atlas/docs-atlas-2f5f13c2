@@ -195,7 +195,7 @@ Netlify provides built-in request utilities through the Netlify context:
 
 ```typescript src/server.ts
 import { createHonoNetlifyServer, netlifyClientIpGetter } from "@resolid/dev/http.server";
-import { clientIp } from "@resolid/dev/http.middleware";
+import { clientIp } from "@resolid/dev/http.server";
 
 export default await createHonoNetlifyServer({
   configure: async (hono) => {
@@ -210,7 +210,7 @@ Uses the Netlify context `ip` property.
 
 ```typescript src/server.ts
 import { createHonoNetlifyServer, netlifyRequestIdGenerator } from "@resolid/dev/http.server";
-import { requestId } from "@resolid/dev/http.middleware";
+import { requestId } from "@resolid/dev/http.server";
 
 export default await createHonoNetlifyServer({
   configure: async (hono) => {
@@ -225,7 +225,7 @@ Uses the Netlify context `requestId` for request tracing.
 
 ```typescript src/server.ts
 import { createHonoNetlifyServer, netlifyRequestOriginGetter } from "@resolid/dev/http.server";
-import { requestOrigin } from "@resolid/dev/http.middleware";
+import { requestOrigin } from "@resolid/dev/http.server";
 
 export default await createHonoNetlifyServer({
   configure: async (hono) => {
