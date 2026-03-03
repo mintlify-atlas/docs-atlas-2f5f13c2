@@ -1,0 +1,172 @@
+{
+  "projectType": "framework",
+  "projectName": "Resolid Framework",
+  "projectDescription": "A modern full-stack framework for building fast, scalable, and maintainable web applications",
+  "theme": "aspen",
+  "primaryColor": "#3B82F6",
+  "lightColor": "#60A5FA",
+  "darkColor": "#2563EB",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": [
+              "introduction",
+              "quickstart",
+              "installation"
+            ]
+          },
+          {
+            "group": "Core Concepts",
+            "pages": [
+              "core/application",
+              "core/extensions",
+              "core/dependency-injection",
+              "core/events",
+              "core/configuration"
+            ]
+          },
+          {
+            "group": "Modules",
+            "pages": [
+              "modules/overview",
+              "modules/dependency-injection",
+              "modules/event-emitter",
+              "modules/cache",
+              "modules/logging",
+              "modules/database"
+            ]
+          },
+          {
+            "group": "Development",
+            "pages": [
+              "development/vite-integration",
+              "development/react-router",
+              "development/http-server",
+              "development/routing"
+            ]
+          },
+          {
+            "group": "Deployment",
+            "pages": [
+              "deployment/overview",
+              "deployment/node",
+              "deployment/vercel",
+              "deployment/netlify"
+            ]
+          },
+          {
+            "group": "Advanced",
+            "pages": [
+              "advanced/providers",
+              "advanced/scopes",
+              "advanced/disposal",
+              "advanced/circular-dependencies"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "groups": [
+          {
+            "group": "Core",
+            "pages": [
+              "api/core/create-app",
+              "api/core/app",
+              "api/core/extension",
+              "api/core/app-context"
+            ]
+          },
+          {
+            "group": "Dependency Injection",
+            "pages": [
+              "api/di/container",
+              "api/di/inject",
+              "api/di/provider",
+              "api/di/token"
+            ]
+          },
+          {
+            "group": "Event",
+            "pages": [
+              "api/event/emitter"
+            ]
+          },
+          {
+            "group": "Cache",
+            "pages": [
+              "api/cache/cacher",
+              "api/cache/cache-store"
+            ]
+          },
+          {
+            "group": "Logging",
+            "pages": [
+              "api/logging/logger",
+              "api/logging/configuration"
+            ]
+          },
+          {
+            "group": "Database",
+            "pages": [
+              "api/database/setup",
+              "api/database/providers"
+            ]
+          },
+          {
+            "group": "Development",
+            "pages": [
+              "api/dev/config",
+              "api/dev/http-server",
+              "api/dev/router",
+              "api/dev/routes"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Community",
+        "groups": [
+          {
+            "group": "Resources",
+            "pages": [
+              "community/contributing",
+              "community/code-of-conduct",
+              "community/changelog"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Type-safe dependency injection with singleton and transient scopes",
+    "Lightweight event emitter with async support",
+    "Extensible architecture with plugins and extensions",
+    "Built-in caching system with pluggable storage backends",
+    "React Router integration with Vite",
+    "Multi-platform deployment (Node.js, Vercel, Netlify)",
+    "Database integration with Drizzle ORM",
+    "Structured logging with LogTape",
+    "HTTP server with Hono framework",
+    "TypeScript-first with full type safety"
+  ],
+  "publicApiSurface": [
+    "createApp - Main application factory function",
+    "App - Application class with lifecycle management",
+    "Extension - Plugin system for extending functionality",
+    "Container - Dependency injection container",
+    "inject - Function for resolving dependencies",
+    "Provider - Interface for registering services",
+    "Emitter - Event emitter class",
+    "Cacher - Cache manager with async operations",
+    "defineDevConfig - Development configuration helper",
+    "createHttpServer - HTTP server factory",
+    "Logger - Logging service",
+    "Database providers - Integration with Drizzle ORM"
+  ]
+}
