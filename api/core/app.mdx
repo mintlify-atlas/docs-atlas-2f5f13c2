@@ -1,0 +1,241 @@
+---
+title: App
+description: The main application class for managing lifecycle, dependencies, and extensions
+---
+
+## Class Signature
+
+```typescript
+class App<E extends Record<string, unknown>>
+```
+
+The App class manages the application lifecycle, dependency injection container, event emitter, and extension bootstrapping.
+
+## Type Parameters
+
+<ParamField path="E" type="Record<string, unknown>">
+  The type of the exposed services object. This is inferred from the `expose` schema passed to `createApp`.
+</ParamField>
+
+## Properties
+
+### name
+
+```typescript
+public readonly name: string
+```
+
+The name of the application.
+
+### debug
+
+```typescript
+public readonly debug: boolean
+```
+
+Whether debug mode is enabled. Defaults to `false`.
+
+### timezone
+
+```typescript
+public readonly timezone: string
+```
+
+The application's timezone. Defaults to `"UTC"`. This value is also set to `process.env.timezone`.
+
+### emitter
+
+```typescript
+public readonly emitter: Emitter
+```
+
+The application's event emitter instance. Used for application-wide events like `'app:ready'`.
+
+### $
+
+```typescript
+public readonly $: E
+```
+
+Object containing exposed services as defined in the `expose` schema. Provides type-safe access to registered services.
+
+## Methods
+
+### init()
+
+```typescript
+async init(): Promise<void>
+```
+
+Initializes the application by resolving and exposing services defined in the `expose` schema. This method is called automatically by `createApp()` and typically doesn't need to be called manually.
+
+<ResponseField name="void" type="Promise<void>">
+  Returns a Promise that resolves when initialization is complete.
+</ResponseField>
+
+**Behavior:**
+- Iterates through the expose schema
+- Resolves each token from the dependency injection container
+- Assigns the resolved instances to the `$` object
+
+### rootPath()
+
+```typescript
+rootPath(...paths: string[]): string
+```
+
+Resolves paths relative to the application's root directory (current working directory).
+
+<ParamField path="...paths" type="string[]">
+  Path segments to join. Backslashes are automatically converted to forward slashes for cross-platform compatibility.
+</ParamField>
+
+<ResponseField name="string" type="string">
+  The absolute path joined from the root directory and provided segments.
+</ResponseField>
+
+**Examples:**
+```typescript
+app.rootPath(); // Returns cwd()
+app.rootPath('config'); // Returns /path/to/app/config
+app.rootPath('config', 'database.json'); // Returns /path/to/app/config/database.json
+app.rootPath('config\\log'); // Returns /path/to/app/config/log (backslashes converted)
+```
+
+### runtimePath()
+
+```typescript
+runtimePath(...paths: string[]): string
+```
+
+Resolves paths relative to the application's runtime directory (`{root}/runtime`).
+
+<ParamField path="...paths" type="string[]">
+  Path segments to join. Backslashes are automatically converted to forward slashes.
+</ParamField>
+
+<ResponseField name="string" type="string">
+  The absolute path joined from the runtime directory and provided segments.
+</ResponseField>
+
+**Examples:**
+```typescript
+app.runtimePath(); // Returns /path/to/app/runtime
+app.runtimePath('cache'); // Returns /path/to/app/runtime/cache
+app.runtimePath('logs', 'app.log'); // Returns /path/to/app/runtime/logs/app.log
+```
+
+### get()
+
+```typescript
+get<T>(token: Token<T>): T
+```
+
+Retrieves a service from the dependency injection container by its token.
+
+<ParamField path="token" type="Token<T>" required>
+  The dependency injection token for the service to retrieve.
+</ParamField>
+
+<ResponseField name="T" type="T">
+  The resolved service instance.
+</ResponseField>
+
+**Example:**
+```typescript
+const LOGGER = Symbol('LOGGER') as Token<LoggerService>;
+
+const app = await createApp({
+  name: 'MyApp',
+  providers: [
+    { token: LOGGER, factory: () => new LoggerService() }
+  ]
+});
+
+const logger = app.get(LOGGER);
+logger.log('Hello');
+```
+
+### run()
+
+```typescript
+async run(): Promise<void>
+```
+
+Starts the application by executing all extension bootstrap functions and emitting the `'app:ready'` event.
+
+<ResponseField name="void" type="Promise<void>">
+  Returns a Promise that resolves when all bootstrap functions complete.
+</ResponseField>
+
+**Behavior:**
+- Executes all bootstrap functions from registered extensions in parallel
+- Emits the `'app:ready'` event when bootstrapping completes
+- Is idempotent - calling multiple times has no additional effect
+- If any bootstrap function throws an error, the Promise rejects
+
+**Example:**
+```typescript
+const app = await createApp({
+  name: 'MyApp',
+  extensions: [
+    {
+      name: 'database',
+      bootstrap: async (context) => {
+        // Connect to database
+        console.log('Database connected');
+      }
+    }
+  ]
+});
+
+await app.run(); // Logs: "Database connected"
+await app.run(); // No effect - bootstrap functions only run once
+```
+
+### dispose()
+
+```typescript
+async dispose(): Promise<void>
+```
+
+Cleans up application resources by disposing the dependency injection container and removing all event listeners.
+
+<ResponseField name="void" type="Promise<void>">
+  Returns a Promise that resolves when cleanup is complete.
+</ResponseField>
+
+**Behavior:**
+- Calls `dispose()` on the dependency injection container (which calls `dispose()` on all services that implement it)
+- Removes all event listeners from the emitter using `emitter.offAll()`
+
+**Example:**
+```typescript
+const DB = Symbol('DB') as Token<DatabaseService>;
+
+const app = await createApp({
+  name: 'MyApp',
+  providers: [
+    {
+      token: DB,
+      factory: () => ({
+        connection: connectToDb(),
+        dispose: () => {
+          console.log('Disconnecting from database');
+        }
+      })
+    }
+  ]
+});
+
+await app.run();
+
+// When shutting down:
+await app.dispose(); // Logs: "Disconnecting from database"
+```
+
+## See Also
+
+- [createApp](/api/core/create-app) - Factory function to create App instances
+- [AppContext](/api/core/app-context) - Context object provided to extensions
+- [Extension](/api/core/extension) - Extension interface for extending application functionality

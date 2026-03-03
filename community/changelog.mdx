@@ -1,0 +1,122 @@
+---
+title: Changelog
+description: Track changes and updates to the Resolid Framework packages
+---
+
+The Resolid Framework uses [Changesets](https://github.com/changesets/changesets) to manage versioning and changelogs across all packages in the monorepo.
+
+## Viewing Changes
+
+Each package maintains its own changelog that documents all version updates, new features, bug fixes, and breaking changes.
+
+<CardGroup cols={2}>
+  <Card title="GitHub Releases" icon="github" href="https://github.com/resolid/framework/releases">
+    View all releases and their detailed changelogs on GitHub
+  </Card>
+  <Card title="Package Changelogs" icon="file-lines" href="https://github.com/resolid/framework/tree/main/packages">
+    Browse individual CHANGELOG.md files for each package
+  </Card>
+</CardGroup>
+
+## Core Packages
+
+The framework consists of several core packages, each with its own changelog:
+
+<AccordionGroup>
+  <Accordion title="@resolid/di" icon="box">
+    Dependency injection container for managing application dependencies.
+
+    [View Changelog](https://github.com/resolid/framework/blob/main/packages/di/CHANGELOG.md)
+  </Accordion>
+  <Accordion title="@resolid/event" icon="bolt">
+    Event management and handling system.
+
+    [View Changelog](https://github.com/resolid/framework/blob/main/packages/event/CHANGELOG.md)
+  </Accordion>
+  <Accordion title="@resolid/cache" icon="database">
+    Caching utilities and implementations.
+
+    [View Changelog](https://github.com/resolid/framework/blob/main/packages/cache/CHANGELOG.md)
+  </Accordion>
+  <Accordion title="@resolid/cache-file" icon="file">
+    File-based caching implementation.
+
+    [View Changelog](https://github.com/resolid/framework/blob/main/packages/cache-file/CHANGELOG.md)
+  </Accordion>
+  <Accordion title="@resolid/dev" icon="code">
+    Development tools and utilities.
+
+    [View Changelog](https://github.com/resolid/framework/blob/main/packages/dev/CHANGELOG.md)
+  </Accordion>
+</AccordionGroup>
+
+## Understanding Changelog Format
+
+Changelogs follow the [Keep a Changelog](https://keepachangelog.com/) format with semantic versioning:
+
+<Tabs>
+  <Tab title="Major Changes">
+    Breaking changes that require migration steps.
+
+    **Example:**
+    ```markdown
+    ## 1.0.0
+
+    ### Major Changes
+
+    - refactor(core): remove old container API
+
+    BREAKING CHANGE: the previous `createContainer` method is replaced with a new interface
+    ```
+  </Tab>
+  <Tab title="Minor Changes">
+    New features that are backward compatible.
+
+    **Example:**
+    ```markdown
+    ## 0.7.0
+
+    ### Minor Changes
+
+    - feat: add new caching strategies
+    - feat: support custom providers
+    ```
+  </Tab>
+  <Tab title="Patch Changes">
+    Bug fixes and minor improvements.
+
+    **Example:**
+    ```markdown
+    ## 0.6.1
+
+    ### Patch Changes
+
+    - fix: resolve circular dependency issue
+    - chore: update dependencies
+    ```
+  </Tab>
+</Tabs>
+
+## Staying Updated
+
+<Steps>
+  <Step title="Watch the repository">
+    [Watch the repository](https://github.com/resolid/framework) on GitHub to receive notifications about new releases.
+  </Step>
+  <Step title="Check release notes">
+    Review the [releases page](https://github.com/resolid/framework/releases) for detailed information about each version.
+  </Step>
+  <Step title="Follow migration guides">
+    For breaking changes, follow the migration guides provided in the release notes.
+  </Step>
+  <Step title="Update dependencies">
+    Keep your dependencies up to date using your package manager:
+    ```shell
+    pnpm update @resolid/*
+    ```
+  </Step>
+</Steps>
+
+<Note>
+  The changelog is automatically generated from commit messages following the [Conventional Commits](https://www.conventionalcommits.org/) specification.
+</Note>

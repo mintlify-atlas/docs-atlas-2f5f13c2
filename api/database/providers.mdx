@@ -1,0 +1,340 @@
+---
+title: 'Database Providers'
+description: 'Configure database providers for different database systems'
+---
+
+## Overview
+
+The Resolid Framework supports multiple database providers through Drizzle ORM. Each provider offers specific configuration options and features tailored to the target database system.
+
+## Available Providers
+
+### MySQL
+
+MySQL and MySQL-compatible databases (MariaDB, PlanetScale, etc.).
+
+**Package:** `@resolid/app-db-mysql`
+
+**Installation:**
+
+```bash
+npm install @resolid/app-db-mysql drizzle-orm mysql2
+```
+
+## MySQL Provider
+
+### Function: createMySQLDatabaseExtension()
+
+Creates a MySQL database extension for a Resolid application.
+
+```typescript
+function createMySQLDatabaseExtension<S extends Record<string, unknown> = Record<string, never>>(
+  config: MySQLDatabaseConfig<S>
+): ExtensionCreator
+```
+
+<ParamField path="config" type="MySQLDatabaseConfig<S>" required>
+  MySQL database configuration options
+</ParamField>
+
+<ParamField path="config.connection" type="object">
+  Single connection configuration (mutually exclusive with `connections`)
+</ParamField>
+
+<ParamField path="config.connection.uri" type="string" required>
+  MySQL connection URI (e.g., `mysql://user:password@host:port/database`)
+</ParamField>
+
+<ParamField path="config.connections" type="array">
+  Multiple named connections (mutually exclusive with `connection`)
+</ParamField>
+
+<ParamField path="config.mode" type="'default' | 'planetscale'">
+  MySQL mode. Use `'planetscale'` for PlanetScale databases.
+</ParamField>
+
+<ParamField path="config.drizzle" type="MySql2DrizzleConfig<S>">
+  Drizzle ORM configuration including schema definitions
+</ParamField>
+
+<ParamField path="config.enhancer" type="(pool: Pool) => Pool | void">
+  Function to enhance or modify the connection pool
+</ParamField>
+
+### Connection Options
+
+The MySQL provider accepts all standard MySQL2 connection options:
+
+```typescript
+createMySQLDatabaseExtension({
+  connection: {
+    uri: 'mysql://user:password@localhost:3306/mydb',
+    // Connection pool options
+    connectionLimit: 10,
+    queueLimit: 0,
+    waitForConnections: true,
+    // Character set and timezone
+    charset: 'utf8mb4',
+    timezone: '+00:00',
+    // SSL options
+    ssl: {
+      ca: fs.readFileSync('./certs/ca.pem'),
+      cert: fs.readFileSync('./certs/client-cert.pem'),
+      key: fs.readFileSync('./certs/client-key.pem')
+    },
+    // Connection flags
+    connectTimeout: 10000,
+    acquireTimeout: 10000,
+    timeout: 10000
+  }
+})
+```
+
+### PlanetScale Mode
+
+For PlanetScale databases, use `mode: 'planetscale'`:
+
+```typescript
+import { createMySQLDatabaseExtension } from '@resolid/app-db-mysql';
+
+const app = createApp({
+  extensions: [
+    createMySQLDatabaseExtension({
+      connection: {
+        uri: process.env.DATABASE_URL!
+      },
+      mode: 'planetscale'
+    })
+  ]
+});
+```
+
+### Multiple Connections
+
+Configure multiple named connections:
+
+```typescript
+createMySQLDatabaseExtension({
+  connections: [
+    {
+      name: 'main',
+      config: {
+        uri: 'mysql://user:password@localhost:3306/main',
+        connectionLimit: 20
+      }
+    },
+    {
+      name: 'readonly',
+      config: {
+        uri: 'mysql://user:password@replica:3306/main',
+        connectionLimit: 10
+      }
+    },
+    {
+      name: 'analytics',
+      config: {
+        uri: 'mysql://user:password@localhost:3306/analytics',
+        connectionLimit: 5
+      }
+    }
+  ],
+  drizzle: {
+    schema: mySchema
+  }
+})
+```
+
+Access named connections:
+
+```typescript
+import { DatabaseService } from '@resolid/app-db';
+
+class DataService {
+  private db = inject(DatabaseService);
+  
+  async writeData(data: Data) {
+    const mainDb = this.db.get('main');
+    return mainDb.insert(table).values(data);
+  }
+  
+  async readData() {
+    const readonlyDb = this.db.get('readonly');
+    return readonlyDb.select().from(table);
+  }
+  
+  async trackAnalytics(event: Event) {
+    const analyticsDb = this.db.get('analytics');
+    return analyticsDb.insert(events).values(event);
+  }
+}
+```
+
+## Type Definitions
+
+### MySQLDatabaseConfig
+
+```typescript
+type MySQLDatabaseConfig<S extends Record<string, unknown> = Record<string, never>> = {
+  mode?: 'default' | 'planetscale';
+  enhancer?: (pool: Pool) => Pool | void;
+} & DatabaseConfig<S, MySQLConnectionOptions>
+```
+
+### DatabaseConfig
+
+```typescript
+type DatabaseConfig<S extends Record<string, unknown>, C = unknown> = (
+  | { connections: { name?: string; config: C }[]; connection?: never }
+  | { connection: C; connections?: never }
+) & {
+  drizzle?: DrizzleConfig<S>;
+}
+```
+
+### MySQLConnectionOptions
+
+```typescript
+type MySQLConnectionOptions = {
+  uri: string;
+} & Omit<ConnectionOptions, 'host' | 'port' | 'user' | 'password' | 'database'>
+```
+
+## Repository Base Class
+
+### Class: Repository
+
+Extend this class to create type-safe repositories:
+
+```typescript
+import { Repository } from '@resolid/app-db-mysql';
+import type { MySql2Database } from 'drizzle-orm/mysql2';
+
+export abstract class Repository extends BaseRepository<MySql2Database> {}
+```
+
+The `Repository` class provides access to the database instance:
+
+```typescript
+class UserRepository extends Repository {
+  async findAll() {
+    return this.db.select().from(users);
+  }
+}
+```
+
+## Table Definitions
+
+### Function: createDefineTable()
+
+Creates a table definition function with an optional prefix:
+
+```typescript
+function createDefineTable(prefix?: string): MySqlTableFn
+```
+
+<ParamField path="prefix" type="string" default="''">
+  Table name prefix to use for all tables
+</ParamField>
+
+<ResponseField name="return" type="MySqlTableFn">
+  A function for defining MySQL tables
+</ResponseField>
+
+**Example:**
+
+```typescript
+import { createDefineTable } from '@resolid/app-db-mysql';
+import { int, varchar, timestamp } from 'drizzle-orm/mysql-core';
+
+const defineTable = createDefineTable('app_');
+
+export const users = defineTable('users', {
+  id: int('id').primaryKey().autoincrement(),
+  name: varchar('name', { length: 255 }).notNull(),
+  email: varchar('email', { length: 255 }).notNull().unique(),
+  createdAt: timestamp('created_at').defaultNow()
+});
+// Creates table: app_users
+```
+
+## Environment Variables
+
+Store database credentials in environment variables:
+
+```bash
+# .env
+DATABASE_URL=mysql://user:password@localhost:3306/mydb
+```
+
+```typescript
+import { createMySQLDatabaseExtension } from '@resolid/app-db-mysql';
+
+createMySQLDatabaseExtension({
+  connection: {
+    uri: process.env.DATABASE_URL!
+  }
+})
+```
+
+## Connection Events
+
+Use the `enhancer` to monitor connection events:
+
+```typescript
+import { LogService } from '@resolid/app-log';
+
+createMySQLDatabaseExtension({
+  connection: {
+    uri: process.env.DATABASE_URL!
+  },
+  enhancer: (pool) => {
+    pool.on('connection', (connection) => {
+      console.log('New database connection established');
+    });
+    
+    pool.on('acquire', (connection) => {
+      console.log('Connection acquired from pool');
+    });
+    
+    pool.on('release', (connection) => {
+      console.log('Connection released back to pool');
+    });
+    
+    pool.on('enqueue', () => {
+      console.log('Waiting for available connection');
+    });
+    
+    return pool;
+  }
+})
+```
+
+## Coming Soon
+
+### PostgreSQL Provider
+
+```typescript
+import { createPostgreSQLDatabaseExtension } from '@resolid/app-db-postgres';
+
+createPoster({ grieSQLDatabaseExtension{
+  connection: {
+    uri: 'postgresql://user:password@localhost:5432/mydb'
+  }
+})
+```
+
+### SQLite Provider
+
+```typescript
+import { createSQLiteDatabaseExtension } from '@resolid/app-db-sqlite';
+
+createSQLiteDatabaseExtension({
+  connection: {
+    filename: './data/app.db'
+  }
+})
+```
+
+## Source Code
+
+Location: `packages/app-db-mysql/src/index.ts`

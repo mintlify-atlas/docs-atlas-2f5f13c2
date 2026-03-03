@@ -1,0 +1,236 @@
+---
+title: 'Node.js Deployment'
+description: 'Deploy your Resolid application to a Node.js server'
+---
+
+Deploy your Resolid application to any Node.js environment, including traditional servers, VPS, containers, and cloud platforms.
+
+## Configuration
+
+Configure your application for Node.js deployment in `resolid.config.ts`:
+
+```typescript resolid.config.ts
+import { defineDevConfig } from "@resolid/dev";
+
+export const { vitePluginOptions, reactRouterConfig } = defineDevConfig({
+  appDirectory: "src",
+  platform: "node",
+  nodeVersion: 22,
+});
+```
+
+### Configuration Options
+
+<ParamField path="platform" type="string" required>
+  Set to `"node"` for Node.js deployment
+</ParamField>
+
+<ParamField path="nodeVersion" type="number" default="22">
+  Node.js runtime version (18, 20, 22, or 24)
+</ParamField>
+
+<ParamField path="includeFiles" type="string[]">
+  Additional files to include in the server bundle (e.g., templates, static assets)
+</ParamField>
+
+## Server Setup
+
+Create your server entry file using `createHonoNodeServer`:
+
+```typescript src/server.ts
+import { createHonoNodeServer } from "@resolid/dev/http.server";
+import { env } from "node:process";
+
+export default await createHonoNodeServer({
+  port: env.SERVER_PORT || 3000,
+  defaultLogger: true,
+  configure: async (hono) => {
+    // Add custom middleware or routes
+  },
+  getLoadContext: () => {
+    // Return context available in route loaders/actions
+    return {};
+  },
+  onShutdown: async () => {
+    // Cleanup on server shutdown
+  },
+});
+```
+
+### Server Options
+
+<ParamField path="port" type="number" default="3000">
+  Port number for the server to listen on
+</ParamField>
+
+<ParamField path="defaultLogger" type="boolean" default="false">
+  Enable request logging (automatically disabled in production)
+</ParamField>
+
+<ParamField path="configure" type="function">
+  Function to configure the Hono server instance with custom middleware
+</ParamField>
+
+<ParamField path="getLoadContext" type="function">
+  Function returning context object available in React Router loaders and actions
+</ParamField>
+
+<ParamField path="onShutdown" type="function">
+  Cleanup function called when the server shuts down
+</ParamField>
+
+<ParamField path="listeningListener" type="function">
+  Callback function invoked when the server starts listening
+</ParamField>
+
+## Build Process
+
+<Steps>
+  <Step title="Build the application">
+    Run the build command to create a production bundle:
+
+    ```bash
+    npm run build
+    ```
+
+    This command:
+    - Compiles client assets to `build/client`
+    - Bundles server code to `build/server`
+    - Generates `package.json` with production dependencies
+    - Optimizes and minifies code for production
+  </Step>
+
+  <Step title="Install production dependencies">
+    Navigate to the server build directory and install dependencies:
+
+    ```bash
+    cd build/server
+    npm install --production
+    ```
+  </Step>
+
+  <Step title="Start the server">
+    Run the production server:
+
+    ```bash
+    node server.mjs
+    ```
+
+    The server will start on the configured port (default: 3000).
+  </Step>
+</Steps>
+
+## Environment Variables
+
+Configure your application using environment variables:
+
+<ParamField path="NODE_ENV" type="string" default="production">
+  Application environment mode
+</ParamField>
+
+<ParamField path="SERVER_PORT" type="number" default="3000">
+  Port for the server to listen on
+</ParamField>
+
+<ParamField path="SERVER_PATH" type="string">
+  Base path for the server (e.g., `/api`)
+</ParamField>
+
+## Static File Serving
+
+The Node.js server automatically serves static files:
+
+- **Production**: Assets from `build/client` with cache headers
+  - Assets directory (`/assets/*`): Cached for 1 year (immutable)
+  - Other static files: Cached for 1 hour
+- **Development**: Assets from `public` directory
+
+## Process Management
+
+For production deployments, use a process manager like PM2:
+
+```bash
+npm install -g pm2
+pm2 start build/server/server.mjs --name "my-app"
+```
+
+Or use a systemd service:
+
+```ini /etc/systemd/system/my-app.service
+[Unit]
+Description=My Resolid App
+After=network.target
+
+[Service]
+Type=simple
+User=www-data
+WorkingDirectory=/var/www/my-app
+Environment="NODE_ENV=production"
+Environment="SERVER_PORT=3000"
+ExecStart=/usr/bin/node build/server/server.mjs
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target
+```
+
+## Docker Deployment
+
+Example `Dockerfile` for containerized deployment:
+
+```dockerfile Dockerfile
+FROM node:22-alpine
+
+WORKDIR /app
+
+COPY package*.json ./
+RUN npm ci --production
+
+COPY build ./build
+
+EXPOSE 3000
+
+CMD ["node", "build/server/server.mjs"]
+```
+
+## Client IP Detection
+
+Get client IP addresses with `nodeClientIpGetter`:
+
+```typescript src/server.ts
+import { createHonoNodeServer, nodeClientIpGetter } from "@resolid/dev/http.server";
+import { clientIp } from "@resolid/dev/http.middleware";
+
+export default await createHonoNodeServer({
+  configure: async (hono) => {
+    hono.use("*", clientIp(nodeClientIpGetter()));
+  },
+});
+```
+
+## Request Origin
+
+Get request origin information:
+
+```typescript src/server.ts
+import { createHonoNodeServer, nodeRequestOriginGetter } from "@resolid/dev/http.server";
+import { requestOrigin } from "@resolid/dev/http.middleware";
+
+export default await createHonoNodeServer({
+  configure: async (hono) => {
+    hono.use("*", requestOrigin(nodeRequestOriginGetter(true)));
+  },
+});
+```
+
+## Health Checks
+
+Add health check endpoints for load balancers:
+
+```typescript src/server.ts
+export default await createHonoNodeServer({
+  configure: async (hono) => {
+    hono.get("/health", (c) => c.json({ status: "ok" }));
+  },
+});
+```

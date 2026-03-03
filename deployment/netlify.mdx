@@ -1,0 +1,370 @@
+---
+title: 'Netlify Deployment'
+description: 'Deploy your Resolid application to Netlify'
+---
+
+Deploy your Resolid application to Netlify's serverless platform with continuous deployment and global edge network.
+
+## Configuration
+
+Configure your application for Netlify deployment in `resolid.config.ts`:
+
+```typescript resolid.config.ts
+import { defineDevConfig } from "@resolid/dev";
+
+export const { vitePluginOptions, reactRouterConfig } = defineDevConfig({
+  appDirectory: "src",
+  platform: "netlify",
+  nodeVersion: 22,
+});
+```
+
+### Configuration Options
+
+<ParamField path="platform" type="string" required>
+  Set to `"netlify"` for Netlify deployment
+</ParamField>
+
+<ParamField path="nodeVersion" type="number" default="22">
+  Node.js runtime version (18, 20, 22, or 24)
+</ParamField>
+
+<ParamField path="includeFiles" type="string[]">
+  Additional files to include in Netlify Functions
+</ParamField>
+
+## Server Setup
+
+Create your server entry file using `createHonoNetlifyServer`:
+
+```typescript src/server.ts
+import { createHonoNetlifyServer } from "@resolid/dev/http.server";
+
+export default await createHonoNetlifyServer({
+  configure: async (hono) => {
+    // Add custom middleware or routes
+  },
+  getLoadContext: () => {
+    // Return context available in route loaders/actions
+    return {};
+  },
+});
+```
+
+### Server Options
+
+<ParamField path="configure" type="function">
+  Function to configure the Hono server instance with custom middleware
+</ParamField>
+
+<ParamField path="getLoadContext" type="function">
+  Function returning context object available in React Router loaders and actions
+</ParamField>
+
+## Build Output Structure
+
+The build process generates a `.netlify/v1` directory with:
+
+```
+.netlify/v1/
+├── config.json          # Netlify configuration
+├── functions/           # Netlify Functions
+│   ├── site.mjs        # Function entry point
+│   └── site/           # Bundled function code
+│       ├── server.mjs  # Server bundle
+│       └── ...         # Dependencies
+└── static/              # Static assets (served from build/client)
+```
+
+### Netlify Configuration
+
+The build automatically generates `config.json` with:
+
+- Asset caching headers (1 year for immutable assets)
+- Function metadata and routing rules
+
+## Deployment Steps
+
+<Steps>
+  <Step title="Connect repository">
+    Connect your Git repository to Netlify:
+
+    1. Visit [app.netlify.com](https://app.netlify.com)
+    2. Click **Add new site** → **Import an existing project**
+    3. Select your Git provider and repository
+  </Step>
+
+  <Step title="Configure build settings">
+    Set the following build settings:
+
+    - **Build Command**: `npm run build`
+    - **Publish Directory**: `build/client`
+    - **Functions Directory**: `.netlify/v1/functions`
+  </Step>
+
+  <Step title="Deploy">
+    Click **Deploy site** and Netlify will:
+
+    1. Install dependencies
+    2. Run the build process
+    3. Deploy Netlify Functions
+    4. Publish static assets to the CDN
+  </Step>
+</Steps>
+
+## Environment Variables
+
+Set environment variables in the Netlify dashboard or `netlify.toml`:
+
+<ParamField path="NODE_ENV" type="string" default="production">
+  Automatically set by Netlify
+</ParamField>
+
+<ParamField path="NETLIFY" type="string">
+  Set to `"true"` by Netlify platform
+</ParamField>
+
+## Netlify Configuration File
+
+Create a `netlify.toml` file for additional configuration:
+
+```toml netlify.toml
+[build]
+  command = "npm run build"
+  publish = "build/client"
+  functions = ".netlify/v1/functions"
+
+[build.environment]
+  NODE_VERSION = "22"
+
+[[headers]]
+  for = "/assets/*"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
+
+[[redirects]]
+  from = "/*"
+  to = "/.netlify/functions/site"
+  status = 200
+```
+
+## Netlify CLI Deployment
+
+Deploy using the Netlify CLI:
+
+```bash
+# Install Netlify CLI
+npm i -g netlify-cli
+
+# Login to Netlify
+netlify login
+
+# Deploy to preview
+netlify deploy
+
+# Deploy to production
+netlify deploy --prod
+```
+
+## Netlify Functions
+
+The Netlify preset automatically creates optimized functions:
+
+- Functions are bundled with only necessary dependencies
+- Uses Node File Trace for minimal bundle size
+- Configured with path patterns for routing
+- Supports static file serving preference
+
+Each function exports a config object:
+
+```javascript
+export const config = {
+  path: "/*",
+  displayName: "site server",
+  generator: "@resolid/dev",
+  preferStatic: true,
+  nodeVersion: 22
+};
+```
+
+## Request Utilities
+
+Netlify provides built-in request utilities through the Netlify context:
+
+### Client IP Detection
+
+```typescript src/server.ts
+import { createHonoNetlifyServer, netlifyClientIpGetter } from "@resolid/dev/http.server";
+import { clientIp } from "@resolid/dev/http.middleware";
+
+export default await createHonoNetlifyServer({
+  configure: async (hono) => {
+    hono.use("*", clientIp(netlifyClientIpGetter()));
+  },
+});
+```
+
+Uses the Netlify context `ip` property.
+
+### Request ID
+
+```typescript src/server.ts
+import { createHonoNetlifyServer, netlifyRequestIdGenerator } from "@resolid/dev/http.server";
+import { requestId } from "@resolid/dev/http.middleware";
+
+export default await createHonoNetlifyServer({
+  configure: async (hono) => {
+    hono.use("*", requestId(netlifyRequestIdGenerator()));
+  },
+});
+```
+
+Uses the Netlify context `requestId` for request tracing.
+
+### Request Origin
+
+```typescript src/server.ts
+import { createHonoNetlifyServer, netlifyRequestOriginGetter } from "@resolid/dev/http.server";
+import { requestOrigin } from "@resolid/dev/http.middleware";
+
+export default await createHonoNetlifyServer({
+  configure: async (hono) => {
+    hono.use("*", requestOrigin(netlifyRequestOriginGetter()));
+  },
+});
+```
+
+Returns the site URL from Netlify context.
+
+## Server Bundles
+
+For large applications, split server code into multiple bundles:
+
+```typescript resolid.config.ts
+import { defineDevConfig } from "@resolid/dev";
+
+export const { vitePluginOptions, reactRouterConfig } = defineDevConfig({
+  platform: "netlify",
+  reactRouterConfig: {
+    serverBundles: ({ branch }) => {
+      // Create separate bundles for different route sections
+      if (branch.some((route) => route.id.startsWith("admin"))) {
+        return "admin";
+      }
+      return "site";
+    },
+  },
+});
+```
+
+This creates multiple functions:
+- `site.mjs` - Main application function
+- `admin.mjs` - Admin section function
+
+Each function is deployed independently with route-specific path patterns.
+
+## Accessing Netlify Context
+
+Access Netlify-specific context in your routes:
+
+```typescript src/routes/_index.tsx
+import type { Route } from "./+types/_index";
+
+export async function loader({ context }: Route.LoaderArgs) {
+  // Access Netlify context
+  const netlifyContext = context.env.context;
+  
+  console.log("Site URL:", netlifyContext.site.url);
+  console.log("Request ID:", netlifyContext.requestId);
+  console.log("Client IP:", netlifyContext.ip);
+  
+  return {};
+}
+```
+
+## Performance Optimization
+
+### Edge Functions
+
+For ultra-low latency, consider using Netlify Edge Functions instead of regular Functions. Edge Functions run on Deno at the edge, closer to your users.
+
+### Asset Optimization
+
+Netlify automatically optimizes assets:
+
+- Image optimization
+- Asset compression
+- CDN distribution
+- Smart caching headers
+
+### Prerendering
+
+Prerender static pages at build time:
+
+```typescript resolid.config.ts
+import { defineDevConfig } from "@resolid/dev";
+
+export const { vitePluginOptions, reactRouterConfig } = defineDevConfig({
+  platform: "netlify",
+  reactRouterConfig: {
+    prerender: ["/", "/about", "/contact"],
+  },
+});
+```
+
+## Monitoring
+
+Monitor your deployment in the Netlify dashboard:
+
+- Real-time function logs
+- Analytics and insights
+- Error tracking
+- Performance metrics
+- Bandwidth usage
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Function not found errors">
+    Verify the Functions Directory is set to `.netlify/v1/functions` in your site settings.
+  </Accordion>
+
+  <Accordion title="Build fails with module not found">
+    Ensure all dependencies are in `package.json` and `ssr.external` is configured correctly.
+  </Accordion>
+
+  <Accordion title="Function timeout (10s limit)">
+    Optimize server-side code or consider upgrading to a paid plan with longer timeouts.
+  </Accordion>
+
+  <Accordion title="Large bundle sizes">
+    Use `serverBundles` to split your application into smaller, route-specific functions.
+  </Accordion>
+</AccordionGroup>
+
+## Additional Features
+
+### Forms
+
+Use Netlify Forms for form handling:
+
+```html
+<form name="contact" method="POST" data-netlify="true">
+  <input type="text" name="name" />
+  <button type="submit">Submit</button>
+</form>
+```
+
+### Identity
+
+Integrate Netlify Identity for user authentication:
+
+```typescript
+import { netlifyIdentity } from "netlify-identity-widget";
+
+netlifyIdentity.init();
+```
+
+### Split Testing
+
+Run A/B tests using Netlify Split Testing from the dashboard.

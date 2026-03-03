@@ -1,0 +1,366 @@
+---
+title: 'Logger'
+description: 'Logging service for structured application logging'
+---
+
+## Overview
+
+The `LogService` class provides a structured logging solution built on top of LogTape. It supports multiple log levels, categories, sinks, and contextual logging.
+
+## Class: LogService
+
+### Constructor
+
+```typescript
+new LogService(config?: LogConfig)
+```
+
+<ParamField path="config" type="LogConfig">
+  Configuration options for the logging service
+</ParamField>
+
+<ParamField path="config.defaultTarget" type="string">
+  The default target sink name
+</ParamField>
+
+<ParamField path="config.defaultCategory" type="string">
+  The default log category. Defaults to `"app"`.
+</ParamField>
+
+<ParamField path="config.sinks" type="Record<string, Sink>">
+  Named sinks for log output (console, file, etc.)
+</ParamField>
+
+<ParamField path="config.filters" type="object">
+  Filter configurations for controlling log output
+</ParamField>
+
+<ParamField path="config.loggers" type="LoggerEntity[]">
+  Array of logger configurations
+</ParamField>
+
+**Example:**
+
+```typescript
+import { LogService } from '@resolid/app-log';
+
+const logService = new LogService({
+  defaultCategory: 'my-app',
+  sinks: {
+    console: getConsoleSink()
+  }
+});
+
+await logService.configure();
+```
+
+## Methods
+
+### configure()
+
+Initializes the logging system with the provided configuration.
+
+```typescript
+async configure(): Promise<void>
+```
+
+<Note>
+  This method must be called before using the logger. In a Resolid application, this is typically called automatically during the bootstrap phase.
+</Note>
+
+**Example:**
+
+```typescript
+await logService.configure();
+```
+
+### debug()
+
+Logs a debug-level message.
+
+```typescript
+debug(message: string, properties?: Record<string, unknown>): void
+```
+
+<ParamField path="message" type="string" required>
+  The log message
+</ParamField>
+
+<ParamField path="properties" type="Record<string, unknown>">
+  Additional properties to include in the log entry
+</ParamField>
+
+**Example:**
+
+```typescript
+logService.debug('Processing request', { userId: 123, endpoint: '/api/users' });
+```
+
+### info()
+
+Logs an info-level message.
+
+```typescript
+info(message: string, properties?: Record<string, unknown>): void
+```
+
+<ParamField path="message" type="string" required>
+  The log message
+</ParamField>
+
+<ParamField path="properties" type="Record<string, unknown>">
+  Additional properties to include in the log entry
+</ParamField>
+
+**Example:**
+
+```typescript
+logService.info('User logged in', { userId: 123, timestamp: Date.now() });
+```
+
+### warn()
+
+Logs a warning-level message.
+
+```typescript
+warn(message: string, properties?: Record<string, unknown>): void
+```
+
+<ParamField path="message" type="string" required>
+  The log message
+</ParamField>
+
+<ParamField path="properties" type="Record<string, unknown>">
+  Additional properties to include in the log entry
+</ParamField>
+
+**Example:**
+
+```typescript
+logService.warn('Rate limit approaching', { requests: 95, limit: 100 });
+```
+
+### error()
+
+Logs an error-level message.
+
+```typescript
+error(message: string, properties?: Record<string, unknown>): void
+```
+
+<ParamField path="message" type="string" required>
+  The log message
+</ParamField>
+
+<ParamField path="properties" type="Record<string, unknown>">
+  Additional properties to include in the log entry
+</ParamField>
+
+**Example:**
+
+```typescript
+try {
+  // Some operation
+} catch (err) {
+  logService.error('Failed to process request', { error: err, userId: 123 });
+}
+```
+
+### fatal()
+
+Logs a fatal-level message for critical errors.
+
+```typescript
+fatal(message: string, properties?: Record<string, unknown>): void
+```
+
+<ParamField path="message" type="string" required>
+  The log message
+</ParamField>
+
+<ParamField path="properties" type="Record<string, unknown>">
+  Additional properties to include in the log entry
+</ParamField>
+
+**Example:**
+
+```typescript
+logService.fatal('Database connection failed', { error: err });
+```
+
+### category()
+
+Returns a logger for a specific category.
+
+```typescript
+category(name: string): LogCategory
+```
+
+<ParamField path="name" type="string" required>
+  The category name
+</ParamField>
+
+<ResponseField name="return" type="LogCategory">
+  A logger instance for the specified category with debug, info, warn, error, and fatal methods
+</ResponseField>
+
+**Example:**
+
+```typescript
+const dbLogger = logService.category('database');
+dbLogger.info('Query executed', { query: 'SELECT * FROM users', duration: 42 });
+```
+
+### getLogger()
+
+Returns a logger instance for a specific category.
+
+```typescript
+getLogger(category?: string): Logger
+```
+
+<ParamField path="category" type="string">
+  The category name. Defaults to the default category specified in the config.
+</ParamField>
+
+<ResponseField name="return" type="Logger">
+  A full logger instance from LogTape
+</ResponseField>
+
+**Example:**
+
+```typescript
+const logger = logService.getLogger('auth');
+logger.info('User authenticated');
+```
+
+### withContext()
+
+Creates a logger with additional context properties.
+
+```typescript
+withContext(context: Record<string, unknown>): Logger
+```
+
+<ParamField path="context" type="Record<string, unknown>" required>
+  Context properties to include in all log entries
+</ParamField>
+
+<ResponseField name="return" type="Logger">
+  A logger instance with the specified context
+</ResponseField>
+
+**Example:**
+
+```typescript
+const requestLogger = logService.withContext({
+  requestId: 'abc-123',
+  userId: 456
+});
+
+requestLogger.info('Processing request'); // Includes requestId and userId
+```
+
+### withFilter()
+
+Creates a logger with a custom filter function.
+
+```typescript
+withFilter(filter: (log: LogRecord) => boolean): Logger
+```
+
+<ParamField path="filter" type="(log: LogRecord) => boolean" required>
+  A function that returns `true` to allow the log or `false` to suppress it
+</ParamField>
+
+<ResponseField name="return" type="Logger">
+  A filtered logger instance
+</ResponseField>
+
+### dispose()
+
+Cleans up logging resources.
+
+```typescript
+async dispose(): Promise<void>
+```
+
+**Example:**
+
+```typescript
+await logService.dispose();
+```
+
+## Type Definitions
+
+### LogConfig
+
+```typescript
+type LogConfig = {
+  defaultTarget?: string;
+  defaultCategory?: string;
+  sinks?: Record<string, Sink>;
+  filters?: Config['filters'];
+  loggers?: LoggerEntity[];
+}
+```
+
+### LoggerEntity
+
+```typescript
+type LoggerEntity = {
+  category: string;
+  sinks?: string[];
+  level?: string;
+}
+```
+
+### LogCategory
+
+```typescript
+type LogCategory = {
+  debug(message: string, properties?: Record<string, unknown>): void;
+  info(message: string, properties?: Record<string, unknown>): void;
+  warn(message: string, properties?: Record<string, unknown>): void;
+  error(message: string, properties?: Record<string, unknown>): void;
+  fatal(message: string, properties?: Record<string, unknown>): void;
+}
+```
+
+## Usage Example
+
+```typescript
+import { LogService, getConsoleSink } from '@resolid/app-log';
+
+const logService = new LogService({
+  defaultCategory: 'my-app',
+  sinks: {
+    console: getConsoleSink()
+  },
+  loggers: [
+    { category: 'database', sinks: ['console'], level: 'debug' },
+    { category: 'api', sinks: ['console'], level: 'info' }
+  ]
+});
+
+await logService.configure();
+
+// Use default category
+logService.info('Application started');
+logService.debug('Configuration loaded', { env: 'production' });
+
+// Use specific categories
+const dbLogger = logService.category('database');
+dbLogger.info('Connected to database');
+
+const apiLogger = logService.category('api');
+apiLogger.warn('Rate limit exceeded', { ip: '192.168.1.1' });
+
+// Context logging
+const requestLogger = logService.withContext({ requestId: 'req-123' });
+requestLogger.info('Processing request');
+```
+
+## Source Code
+
+Location: `packages/app-log/src/index.ts`

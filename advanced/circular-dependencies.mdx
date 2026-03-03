@@ -1,0 +1,536 @@
+---
+title: Circular Dependencies
+description: Understanding and resolving circular dependencies in Resolid DI
+---
+
+# Circular Dependencies
+
+Circular dependencies occur when two or more services depend on each other, creating a cycle. Resolid detects these cycles and provides helpful error messages to help you resolve them.
+
+## What Are Circular Dependencies?
+
+A circular dependency happens when:
+
+- Service A depends on Service B
+- Service B depends on Service A
+
+Or in more complex scenarios:
+
+- Service A depends on Service B
+- Service B depends on Service C
+- Service C depends on Service A
+
+```typescript
+class ApiService {
+  constructor(private auth: AuthService) {}
+}
+
+class AuthService {
+  constructor(private api: ApiService) {}
+}
+
+// This creates a circular dependency:
+// ApiService -> AuthService -> ApiService
+```
+
+## Detection Mechanism
+
+Resolid detects circular dependencies using a construction stack that tracks which services are currently being created:
+
+```typescript
+// From container/index.ts:15
+private readonly _constructing: Token[] = [];
+
+// From container/index.ts:17-23
+private _checkCircularDependency(token: Token) {
+  if (this._constructing.includes(token)) {
+    throw new Error(
+      `Circular dependency detected ${[...this._constructing, token].map(toString).join(" -> ")}`,
+    );
+  }
+}
+```
+
+When resolving a dependency:
+
+1. Before calling the factory, the token is added to the construction stack
+2. If the token is already in the stack, a circular dependency is detected
+3. After the factory completes, the token is removed from the stack
+
+```typescript
+// From container/index.ts:44-56
+this._constructing.push(token);
+
+try {
+  const value = new InjectionContext(this).run(() => provider.factory());
+
+  if (singleton) {
+    this._singletons.set(token, value);
+  }
+
+  return value as T;
+} finally {
+  this._constructing.pop();
+}
+```
+
+## Error Messages
+
+When Resolid detects a circular dependency, it throws a descriptive error showing the full dependency chain:
+
+```typescript
+class ApiService {
+  constructor(private auth: AuthService) {}
+}
+
+class AuthService {
+  constructor(private api: ApiService) {}
+}
+
+container.add({
+  token: ApiService,
+  factory: () => new ApiService(inject(AuthService))
+});
+
+container.add({
+  token: AuthService,
+  factory: () => new AuthService(inject(ApiService))
+});
+
+try {
+  container.get(ApiService);
+} catch (error) {
+  console.log(error.message);
+  // "Circular dependency detected ApiService -> AuthService -> ApiService"
+}
+```
+
+The error message shows:
+
+- The complete chain of dependencies
+- The token that completes the cycle
+- Uses the `toString()` function to display readable token names
+
+### Token String Representation
+
+```typescript
+// From shared/index.ts:10-16
+export function toString<T>(token: Token<T>): string {
+  if (typeof token === "symbol") {
+    return token.description ?? String(token);
+  } else {
+    return token.name;
+  }
+}
+```
+
+This ensures class names and symbol descriptions are shown in error messages.
+
+## Common Scenarios
+
+### Direct Circular Dependency
+
+```typescript
+class UserService {
+  constructor(private orders: OrderService) {}
+}
+
+class OrderService {
+  constructor(private users: UserService) {}
+}
+
+// Error: Circular dependency detected UserService -> OrderService -> UserService
+```
+
+### Indirect Circular Dependency
+
+```typescript
+class A {
+  constructor(private b: B) {}
+}
+
+class B {
+  constructor(private c: C) {}
+}
+
+class C {
+  constructor(private a: A) {}
+}
+
+// Error: Circular dependency detected A -> B -> C -> A
+```
+
+## Resolution Strategies
+
+### 1. Lazy Injection
+
+The most common solution is to use lazy injection with the `{ lazy: true }` option. This breaks the cycle by deferring the dependency resolution:
+
+```typescript
+class ApiService {
+  constructor(private getAuth: () => AuthService) {}
+  
+  makeAuthenticatedRequest() {
+    const auth = this.getAuth(); // Resolved when needed
+    const token = auth.getToken();
+    // ... use token
+  }
+}
+
+class AuthService {
+  constructor(private api: ApiService) {}
+  
+  getToken() {
+    return 'token';
+  }
+}
+
+container.add({
+  token: ApiService,
+  factory: () => new ApiService(inject(AuthService, { lazy: true }))
+});
+
+container.add({
+  token: AuthService,
+  factory: () => new AuthService(inject(ApiService))
+});
+
+const api = container.get(ApiService); // No error!
+```
+
+<Note>
+Lazy injection returns a function that resolves the dependency when called. This defers the actual dependency resolution until it's needed, breaking the circular dependency during construction.
+</Note>
+
+### 2. Refactor to Remove Dependency
+
+Often circular dependencies indicate a design issue. Consider refactoring:
+
+```typescript
+// Before: Circular dependency
+class UserService {
+  constructor(private orders: OrderService) {}
+  
+  getUserOrders(userId: string) {
+    return this.orders.getByUserId(userId);
+  }
+}
+
+class OrderService {
+  constructor(private users: UserService) {}
+  
+  getOrderWithUser(orderId: string) {
+    const order = this.findById(orderId);
+    const user = this.users.getById(order.userId);
+    return { order, user };
+  }
+}
+
+// After: Extract shared functionality
+class UserRepository {
+  getById(id: string) { /* ... */ }
+}
+
+class OrderRepository {
+  getById(id: string) { /* ... */ }
+  getByUserId(userId: string) { /* ... */ }
+}
+
+class UserService {
+  constructor(
+    private users: UserRepository,
+    private orders: OrderRepository
+  ) {}
+  
+  getUserOrders(userId: string) {
+    return this.orders.getByUserId(userId);
+  }
+}
+
+class OrderService {
+  constructor(
+    private orders: OrderRepository,
+    private users: UserRepository
+  ) {}
+  
+  getOrderWithUser(orderId: string) {
+    const order = this.orders.getById(orderId);
+    const user = this.users.getById(order.userId);
+    return { order, user };
+  }
+}
+```
+
+### 3. Extract Common Functionality
+
+Create a third service that both depend on:
+
+```typescript
+// Before: Circular dependency
+class AuthService {
+  constructor(private api: ApiService) {}
+}
+
+class ApiService {
+  constructor(private auth: AuthService) {}
+}
+
+// After: Extract token management
+class TokenStore {
+  private token?: string;
+  
+  setToken(token: string) {
+    this.token = token;
+  }
+  
+  getToken() {
+    return this.token;
+  }
+}
+
+class AuthService {
+  constructor(private tokenStore: TokenStore) {}
+  
+  login(credentials: Credentials) {
+    // ... authenticate
+    this.tokenStore.setToken(token);
+  }
+}
+
+class ApiService {
+  constructor(private tokenStore: TokenStore) {}
+  
+  request(endpoint: string) {
+    const token = this.tokenStore.getToken();
+    // ... make request with token
+  }
+}
+```
+
+### 4. Use Events/Messaging
+
+Decouple services using an event emitter:
+
+```typescript
+import { Emitter } from '@resolid/event';
+
+class OrderService {
+  constructor(private emitter: Emitter) {}
+  
+  createOrder(order: Order) {
+    // ... create order
+    this.emitter.emit('order:created', order);
+  }
+}
+
+class NotificationService {
+  constructor(emitter: Emitter) {
+    emitter.on('order:created', (order) => {
+      this.sendOrderConfirmation(order);
+    });
+  }
+  
+  sendOrderConfirmation(order: Order) {
+    // ... send notification
+  }
+}
+
+// No direct dependency between OrderService and NotificationService
+```
+
+### 5. Property Injection (Not Recommended)
+
+While not built into Resolid, you could manually set dependencies after construction:
+
+```typescript
+class ApiService {
+  auth?: AuthService;
+  
+  makeRequest() {
+    if (!this.auth) throw new Error('Auth not set');
+    // ... use auth
+  }
+}
+
+class AuthService {
+  constructor(private api: ApiService) {}
+}
+
+container.add({
+  token: ApiService,
+  factory: () => new ApiService()
+});
+
+container.add({
+  token: AuthService,
+  factory: () => {
+    const api = inject(ApiService);
+    const auth = new AuthService(api);
+    api.auth = auth; // Set after construction
+    return auth;
+  }
+});
+```
+
+<Warning>
+Property injection makes dependencies less explicit and can lead to runtime errors. Prefer lazy injection or refactoring instead.
+</Warning>
+
+## Testing for Circular Dependencies
+
+```typescript
+import { describe, it, expect, beforeEach } from 'vitest';
+
+describe('Circular dependency detection', () => {
+  let container: Container;
+  
+  beforeEach(() => {
+    container = new Container();
+  });
+  
+  it('should detect direct circular dependencies', () => {
+    class A {
+      constructor(private b: B) {}
+    }
+    
+    class B {
+      constructor(private a: A) {}
+    }
+    
+    container.add({
+      token: A,
+      factory: () => new A(inject(B))
+    });
+    
+    container.add({
+      token: B,
+      factory: () => new B(inject(A))
+    });
+    
+    expect(() => container.get(A)).toThrow('Circular dependency detected');
+  });
+  
+  it('should show full dependency chain', () => {
+    class A {
+      constructor(private b: B) {}
+    }
+    
+    class B {
+      constructor(private a: A) {}
+    }
+    
+    container.add({
+      token: A,
+      factory: () => new A(inject(B))
+    });
+    
+    container.add({
+      token: B,
+      factory: () => new B(inject(A))
+    });
+    
+    try {
+      container.get(A);
+      expect.fail('Should throw error');
+    } catch (error: any) {
+      expect(error.message).toContain('A');
+      expect(error.message).toContain('B');
+      expect(error.message).toContain('->');
+    }
+  });
+  
+  it('should allow lazy injection to break cycles', () => {
+    class A {
+      constructor(private getB: () => B) {}
+      
+      useB() {
+        return this.getB();
+      }
+    }
+    
+    class B {
+      constructor(private a: A) {}
+    }
+    
+    container.add({
+      token: A,
+      factory: () => new A(inject(B, { lazy: true }))
+    });
+    
+    container.add({
+      token: B,
+      factory: () => new B(inject(A))
+    });
+    
+    expect(() => container.get(A)).not.toThrow();
+    
+    const a = container.get(A);
+    const b = a.useB();
+    
+    expect(b).toBeInstanceOf(B);
+  });
+});
+```
+
+## Best Practices
+
+1. **Avoid circular dependencies** - they often indicate design issues
+2. **Use lazy injection** as a tactical solution when needed
+3. **Refactor when possible** - extract shared dependencies or use events
+4. **Keep dependency graphs shallow** - deep nesting makes circles more likely
+5. **Review your architecture** if you encounter many circular dependencies
+6. **Document why** you used lazy injection if it wasn't obvious
+7. **Test edge cases** - ensure lazy-injected dependencies work correctly
+
+## Debugging Tips
+
+### Visualize Dependencies
+
+Create a simple script to map out your dependencies:
+
+```typescript
+function getDependencies(container: Container) {
+  const graph: Record<string, string[]> = {};
+  
+  for (const [token, provider] of container['_providers']) {
+    const tokenName = toString(token);
+    graph[tokenName] = [];
+    
+    // You'd need to analyze the factory function
+    // This is a simplified example
+  }
+  
+  return graph;
+}
+```
+
+### Use Descriptive Token Names
+
+```typescript
+// Good - class name is clear
+class UserService {}
+
+// Good - symbol has description
+const CONFIG = Symbol('AppConfig');
+
+// Bad - anonymous symbol
+const BAD_TOKEN = Symbol();
+```
+
+### Add Logging
+
+```typescript
+container.add({
+  token: ApiService,
+  factory: () => {
+    console.log('Creating ApiService');
+    return new ApiService(inject(AuthService, { lazy: true }));
+  }
+});
+```
+
+## Related Documentation
+
+- [Providers](/advanced/providers) - Understanding factory functions and injection
+- [Scopes](/advanced/scopes) - How scopes interact with circular dependencies
+- [Injection](/guides/dependency-injection) - Basic dependency injection patterns

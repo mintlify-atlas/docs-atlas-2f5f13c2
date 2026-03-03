@@ -1,0 +1,537 @@
+---
+title: 'Event Emitter'
+description: 'Complete guide to @resolid/event - Emitter class and event-driven patterns'
+---
+
+The `@resolid/event` package provides a lightweight, fully-typed event emitter for modern TypeScript projects. It offers a clean API for implementing event-driven architectures with zero dependencies.
+
+## Installation
+
+```bash
+pnpm add @resolid/event
+# or
+npm install @resolid/event
+# or
+yarn add @resolid/event
+# or
+bun add @resolid/event
+```
+
+## Basic Usage
+
+Create an emitter, register event listeners, and emit events:
+
+```typescript
+import { Emitter } from "@resolid/event";
+
+const emitter = new Emitter();
+
+// Register a listener
+emitter.on("hello", (name: string) => {
+  console.log(`Hello, ${name}!`);
+});
+
+// Emit an event
+emitter.emit("hello", "World"); // Output: Hello, World!
+```
+
+## Core Methods
+
+### on() - Register Listener
+
+Register a listener that will be called every time the event is emitted:
+
+```typescript
+const emitter = new Emitter();
+
+const unsubscribe = emitter.on("message", (text: string, sender: string) => {
+  console.log(`${sender}: ${text}`);
+});
+
+emitter.emit("message", "Hello", "Alice"); // Output: Alice: Hello
+emitter.emit("message", "Hi", "Bob");      // Output: Bob: Hi
+
+// Remove the listener
+unsubscribe();
+```
+
+**Returns**: A function to unsubscribe the listener
+
+**Type signature** (see `packages/event/src/index.ts:7`):
+```typescript
+on<Args extends unknown[]>(event: string, callback: (...args: Args) => void): () => void
+```
+
+### off() - Remove Listener
+
+Remove a specific listener from an event:
+
+```typescript
+const emitter = new Emitter();
+
+const handler = (msg: string) => console.log(msg);
+
+emitter.on("log", handler);
+emitter.emit("log", "First");  // Output: First
+
+emitter.off("log", handler);
+emitter.emit("log", "Second"); // No output
+```
+
+**Type signature** (see `packages/event/src/index.ts:20`):
+```typescript
+off<Args extends unknown[]>(event: string, callback: (...args: Args) => void): void
+```
+
+### offAll() - Remove All Listeners
+
+Remove all listeners for a specific event or all events:
+
+```typescript
+const emitter = new Emitter();
+
+emitter.on("event1", () => console.log("A"));
+emitter.on("event1", () => console.log("B"));
+emitter.on("event2", () => console.log("C"));
+
+// Remove all listeners for "event1"
+emitter.offAll("event1");
+emitter.emit("event1"); // No output
+emitter.emit("event2"); // Output: C
+
+// Remove all listeners for all events
+emitter.offAll();
+emitter.emit("event2"); // No output
+```
+
+**Type signature** (see `packages/event/src/index.ts:39`):
+```typescript
+offAll(event?: string): void
+```
+
+### once() - One-time Listener
+
+Register a listener that will be called only once:
+
+```typescript
+const emitter = new Emitter();
+
+emitter.once("ready", (msg: string) => {
+  console.log(msg);
+});
+
+emitter.emit("ready", "First call");  // Output: First call
+emitter.emit("ready", "Second call"); // No output - listener was removed
+```
+
+**Type signature** (see `packages/event/src/index.ts:47`):
+```typescript
+once<Args extends unknown[]>(event: string, callback: (...args: Args) => void): void
+```
+
+### emit() - Synchronous Emission
+
+Emit an event synchronously, calling all registered listeners immediately:
+
+```typescript
+const emitter = new Emitter();
+
+emitter.on("log", (msg: string) => {
+  console.log(`Log: ${msg}`);
+});
+
+console.log("Before emit");
+emitter.emit("log", "Something happened");
+console.log("After emit");
+
+// Output:
+// Before emit
+// Log: Something happened
+// After emit
+```
+
+**Type signature** (see `packages/event/src/index.ts:56`):
+```typescript
+emit<Args extends unknown[]>(event: string, ...args: Args): void
+```
+
+### emitAsync() - Asynchronous Emission
+
+Emit an event asynchronously using `queueMicrotask`, allowing synchronous code to complete first:
+
+```typescript
+const emitter = new Emitter();
+
+emitter.on("done", () => {
+  console.log("Event handled (after all sync code)");
+});
+
+console.log("Before emitAsync");
+emitter.emitAsync("done");
+console.log("After emitAsync");
+
+// Output:
+// Before emitAsync
+// After emitAsync
+// Event handled (after all sync code)
+```
+
+**Type signature** (see `packages/event/src/index.ts:70`):
+```typescript
+emitAsync<Args extends unknown[]>(event: string, ...args: Args): void
+```
+
+## Type Safety
+
+The `Emitter` class is fully typed and preserves type information for event arguments:
+
+```typescript
+const emitter = new Emitter();
+
+// TypeScript infers the correct types
+emitter.on("user:created", (id: number, name: string, email: string) => {
+  console.log(`User ${id}: ${name} <${email}>`);
+});
+
+// Correct usage
+emitter.emit("user:created", 1, "Alice", "alice@example.com");
+
+// TypeScript error: wrong argument types
+// emitter.emit("user:created", "not a number", 123, true);
+```
+
+## Common Patterns
+
+### Event-Driven Service Communication
+
+Decouple services using events:
+
+```typescript
+import { Emitter } from "@resolid/event";
+
+class OrderService {
+  constructor(private events: Emitter) {}
+
+  createOrder(order: Order): void {
+    // Create order...
+    this.events.emit("order:created", order);
+  }
+}
+
+class EmailService {
+  constructor(private events: Emitter) {
+    this.events.on("order:created", this.sendConfirmation.bind(this));
+  }
+
+  private sendConfirmation(order: Order): void {
+    console.log(`Sending confirmation for order ${order.id}`);
+  }
+}
+
+class InventoryService {
+  constructor(private events: Emitter) {
+    this.events.on("order:created", this.updateStock.bind(this));
+  }
+
+  private updateStock(order: Order): void {
+    console.log(`Updating stock for order ${order.id}`);
+  }
+}
+
+// Wire up services
+const events = new Emitter();
+const orderService = new OrderService(events);
+const emailService = new EmailService(events);
+const inventoryService = new InventoryService(events);
+
+// Create an order - email and inventory services react automatically
+orderService.createOrder({ id: 1, items: [...] });
+```
+
+### Lifecycle Hooks
+
+Implement lifecycle hooks for components:
+
+```typescript
+class Component {
+  private events = new Emitter();
+
+  onMount(callback: () => void): void {
+    this.events.on("mount", callback);
+  }
+
+  onUnmount(callback: () => void): void {
+    this.events.on("unmount", callback);
+  }
+
+  mount(): void {
+    // Mount logic...
+    this.events.emit("mount");
+  }
+
+  unmount(): void {
+    // Unmount logic...
+    this.events.emit("unmount");
+    this.events.offAll(); // Clean up all listeners
+  }
+}
+
+const component = new Component();
+
+component.onMount(() => {
+  console.log("Component mounted");
+});
+
+component.onUnmount(() => {
+  console.log("Component unmounted");
+});
+
+component.mount();   // Output: Component mounted
+component.unmount(); // Output: Component unmounted
+```
+
+### State Change Notifications
+
+Notify observers when state changes:
+
+```typescript
+class Store<T> {
+  private state: T;
+  private events = new Emitter();
+
+  constructor(initialState: T) {
+    this.state = initialState;
+  }
+
+  getState(): T {
+    return this.state;
+  }
+
+  setState(newState: T): void {
+    const oldState = this.state;
+    this.state = newState;
+    this.events.emit("change", newState, oldState);
+  }
+
+  subscribe(callback: (state: T, prevState: T) => void): () => void {
+    return this.events.on("change", callback);
+  }
+}
+
+const store = new Store({ count: 0 });
+
+const unsubscribe = store.subscribe((state, prevState) => {
+  console.log(`Count changed from ${prevState.count} to ${state.count}`);
+});
+
+store.setState({ count: 1 }); // Output: Count changed from 0 to 1
+store.setState({ count: 2 }); // Output: Count changed from 1 to 2
+
+unsubscribe();
+store.setState({ count: 3 }); // No output
+```
+
+### Error Handling
+
+Implement centralized error handling:
+
+```typescript
+const emitter = new Emitter();
+
+// Global error handler
+emitter.on("error", (error: Error, context?: string) => {
+  console.error(`Error in ${context || "unknown"}:`, error.message);
+  // Send to logging service, etc.
+});
+
+// Emit errors from anywhere
+try {
+  // Some operation that might fail
+  throw new Error("Database connection failed");
+} catch (error) {
+  emitter.emit("error", error as Error, "database");
+}
+```
+
+### Request/Response Pattern
+
+Implement request/response communication:
+
+```typescript
+class MessageBus {
+  private emitter = new Emitter();
+
+  request<T>(event: string, data: unknown): Promise<T> {
+    return new Promise((resolve) => {
+      const responseEvent = `${event}:response:${Math.random()}`;
+      
+      this.emitter.once(responseEvent, (result: T) => {
+        resolve(result);
+      });
+
+      this.emitter.emit(event, data, responseEvent);
+    });
+  }
+
+  handle<T, R>(event: string, handler: (data: T) => R | Promise<R>): void {
+    this.emitter.on(event, async (data: T, responseEvent: string) => {
+      const result = await handler(data);
+      this.emitter.emit(responseEvent, result);
+    });
+  }
+}
+
+const bus = new MessageBus();
+
+// Handler
+bus.handle<{ id: number }, User>("user:get", async ({ id }) => {
+  // Fetch user from database
+  return { id, name: "Alice" };
+});
+
+// Request
+const user = await bus.request<User>("user:get", { id: 1 });
+console.log(user); // { id: 1, name: "Alice" }
+```
+
+## Memory Management
+
+Always clean up event listeners to prevent memory leaks:
+
+```typescript
+class Component {
+  private events = new Emitter();
+  private unsubscribers: Array<() => void> = [];
+
+  init(): void {
+    // Store unsubscribe functions
+    this.unsubscribers.push(
+      this.events.on("event1", this.handler1.bind(this)),
+      this.events.on("event2", this.handler2.bind(this))
+    );
+  }
+
+  destroy(): void {
+    // Clean up all listeners
+    this.unsubscribers.forEach(unsub => unsub());
+    this.unsubscribers = [];
+    
+    // Or remove all at once
+    this.events.offAll();
+  }
+
+  private handler1(): void { /* ... */ }
+  private handler2(): void { /* ... */ }
+}
+```
+
+## API Reference
+
+### Emitter Class
+
+See source at `packages/event/src/index.ts:3`
+
+```typescript
+class Emitter {
+  // Register a listener
+  on<Args extends unknown[]>(
+    event: string,
+    callback: (...args: Args) => void
+  ): () => void;
+
+  // Remove a specific listener
+  off<Args extends unknown[]>(
+    event: string,
+    callback: (...args: Args) => void
+  ): void;
+
+  // Remove all listeners for an event or all events
+  offAll(event?: string): void;
+
+  // Register a one-time listener
+  once<Args extends unknown[]>(
+    event: string,
+    callback: (...args: Args) => void
+  ): void;
+
+  // Emit an event synchronously
+  emit<Args extends unknown[]>(event: string, ...args: Args): void;
+
+  // Emit an event asynchronously
+  emitAsync<Args extends unknown[]>(event: string, ...args: Args): void;
+}
+```
+
+## Best Practices
+
+### 1. Use Descriptive Event Names
+
+```typescript
+// Good: Clear, namespaced event names
+emitter.on("user:created", handler);
+emitter.on("order:cancelled", handler);
+emitter.on("payment:failed", handler);
+
+// Avoid: Generic, unclear names
+emitter.on("event", handler);
+emitter.on("data", handler);
+```
+
+### 2. Clean Up Listeners
+
+Always remove listeners when they're no longer needed:
+
+```typescript
+// Store unsubscribe function
+const unsubscribe = emitter.on("event", handler);
+
+// Clean up when done
+unsubscribe();
+```
+
+### 3. Use once() for One-Time Events
+
+```typescript
+// Good: Automatic cleanup
+emitter.once("ready", () => {
+  console.log("App is ready");
+});
+
+// Avoid: Manual cleanup needed
+const handler = () => {
+  console.log("App is ready");
+  emitter.off("ready", handler);
+};
+emitter.on("ready", handler);
+```
+
+### 4. Consider emitAsync() for Non-Critical Events
+
+Use `emitAsync()` when event handling shouldn't block the current operation:
+
+```typescript
+// Let sync code complete first
+emitter.emitAsync("analytics:track", event);
+
+// Critical events should be sync
+emitter.emit("payment:processing", data);
+```
+
+### 5. Handle Errors in Event Listeners
+
+Wrap event handlers in try/catch to prevent uncaught errors:
+
+```typescript
+emitter.on("data", (data) => {
+  try {
+    processData(data);
+  } catch (error) {
+    emitter.emit("error", error);
+  }
+});
+```
+
+## Related Resources
+
+- [Source code on GitHub](https://github.com/resolid/framework/tree/main/packages/event)
+- [npm package](https://www.npmjs.com/package/@resolid/event)

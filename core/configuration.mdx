@@ -1,0 +1,482 @@
+---
+title: Configuration
+description: Learn how to configure Resolid applications using AppConfig and AppOptions
+---
+
+Resolid Framework applications are configured through the `AppOptions` interface passed to `createApp()`. This page covers all available configuration options and best practices.
+
+## AppConfig Interface
+
+The core configuration interface defines basic app settings:
+
+```typescript
+export interface AppConfig {
+  readonly name: string;
+  readonly debug?: boolean;
+  readonly timezone?: string;
+}
+```
+
+### Configuration Properties
+
+<ParamField path="name" type="string" required>
+  The unique name of your application. This is accessible via `app.name` and `context.name`.
+</ParamField>
+
+<ParamField path="debug" type="boolean" default="false">
+  Enable debug mode for additional logging and development features. Accessible via `app.debug` and `context.debug`.
+</ParamField>
+
+<ParamField path="timezone" type="string" default="UTC">
+  The application's timezone. Sets `process.env.timezone` and is accessible via `app.timezone` and `context.timezone`.
+</ParamField>
+
+### Basic Configuration Example
+
+```typescript
+import { createApp } from '@resolid/core';
+
+const app = await createApp({
+  name: 'MyApp',
+  debug: process.env.NODE_ENV === 'development',
+  timezone: 'America/New_York',
+});
+
+console.log(app.name);     // 'MyApp'
+console.log(app.debug);    // true or false
+console.log(app.timezone); // 'America/New_York'
+```
+
+## AppOptions Interface
+
+`AppOptions` extends `AppConfig` with additional configuration for extensions, providers, and exposed services:
+
+```typescript
+export type AppOptions<E extends ExposeSchema = Record<string, never>> = AppConfig & {
+  readonly extensions?: (Extension | ExtensionCreator)[];
+  readonly providers?: Provider[];
+  readonly expose?: E;
+};
+
+type ExposeSchema = Record<string, Token>;
+```
+
+### Extensions
+
+Register extensions to add functionality to your application:
+
+```typescript
+import { createApp, type Extension, type ExtensionCreator } from '@resolid/core';
+
+// Static extension
+const loggerExtension: Extension = {
+  name: 'logger',
+  providers: [/* ... */],
+};
+
+// Extension creator (with configuration)
+const createDbExtension = (config: DbConfig): ExtensionCreator => {
+  return (context) => ({
+    name: 'database',
+    providers: [/* ... */],
+  });
+};
+
+const app = await createApp({
+  name: 'MyApp',
+  extensions: [
+    loggerExtension,
+    createDbExtension({ host: 'localhost', port: 5432 }),
+  ],
+});
+```
+
+See [Extensions](/core/extensions) for detailed information.
+
+### Providers
+
+Register dependency injection providers directly in the app configuration:
+
+```typescript
+import { createApp, type Token } from '@resolid/core';
+
+const CONFIG = Symbol('CONFIG') as Token<AppConfiguration>;
+const LOGGER = Symbol('LOGGER') as Token<Logger>;
+
+const app = await createApp({
+  name: 'MyApp',
+  providers: [
+    {
+      token: CONFIG,
+      factory: () => ({
+        apiUrl: process.env.API_URL ?? 'http://localhost:3000',
+        apiKey: process.env.API_KEY ?? '',
+      }),
+    },
+    {
+      token: LOGGER,
+      factory: () => ({
+        log: (msg: string) => console.log(`[${new Date().toISOString()}] ${msg}`),
+        error: (msg: string) => console.error(`[${new Date().toISOString()}] ${msg}`),
+      }),
+    },
+  ],
+});
+```
+
+<Note>
+Providers defined at the app level are registered after extension providers, so they can override extension-provided services.
+</Note>
+
+See [Dependency Injection](/core/dependency-injection) for detailed information.
+
+### Expose
+
+Expose specific services on the app's `$` property for convenient, type-safe access:
+
+```typescript
+const LOGGER = Symbol('LOGGER') as Token<Logger>;
+const DATABASE = Symbol('DATABASE') as Token<Database>;
+const USER_SERVICE = Symbol('USER_SERVICE') as Token<UserService>;
+
+const app = await createApp({
+  name: 'MyApp',
+  providers: [
+    { token: LOGGER, factory: () => new Logger() },
+    { token: DATABASE, factory: () => new Database() },
+    { token: USER_SERVICE, factory: () => new UserService() },
+  ],
+  expose: {
+    logger: LOGGER,
+    db: DATABASE,
+    users: USER_SERVICE,
+  },
+});
+
+// Type-safe access to exposed services
+app.$.logger.log('Hello!');
+const user = await app.$.users.findById('123');
+await app.$.db.query('SELECT * FROM users');
+```
+
+<Tip>
+The `expose` option provides full TypeScript inference. The type of `app.$` is automatically inferred from the exposed tokens.
+</Tip>
+
+## Complete Configuration Example
+
+Here's a comprehensive example showing all configuration options:
+
+```typescript
+import { createApp, type Extension, type Token } from '@resolid/core';
+
+// Define types
+interface AppConfig {
+  apiUrl: string;
+  apiKey: string;
+  maxRetries: number;
+}
+
+interface Logger {
+  info(message: string): void;
+  error(message: string, error?: Error): void;
+}
+
+interface Database {
+  connect(): Promise<void>;
+  query(sql: string): Promise<unknown[]>;
+  dispose(): Promise<void>;
+}
+
+interface UserService {
+  findById(id: string): Promise<User | null>;
+  create(data: CreateUserData): Promise<User>;
+}
+
+// Create tokens
+const CONFIG = Symbol('CONFIG') as Token<AppConfig>;
+const LOGGER = Symbol('LOGGER') as Token<Logger>;
+const DATABASE = Symbol('DATABASE') as Token<Database>;
+const USER_SERVICE = Symbol('USER_SERVICE') as Token<UserService>;
+
+// Create extensions
+const loggingExtension: Extension = {
+  name: 'logging',
+  providers: [
+    {
+      token: LOGGER,
+      factory: () => ({
+        info: (msg) => console.log(`[INFO] ${msg}`),
+        error: (msg, err) => console.error(`[ERROR] ${msg}`, err),
+      }),
+    },
+  ],
+};
+
+const databaseExtension: Extension = {
+  name: 'database',
+  providers: [
+    {
+      token: DATABASE,
+      factory: () => {
+        const logger = inject(LOGGER);
+        const config = inject(CONFIG);
+        
+        return new DatabaseConnection(config, logger);
+      },
+    },
+  ],
+  bootstrap: async (context) => {
+    const db = context.container.get(DATABASE);
+    await db.connect();
+    
+    if (context.debug) {
+      context.emitter.on('app:ready', () => {
+        console.log('Database connected and ready');
+      });
+    }
+  },
+};
+
+// Create and configure app
+const app = await createApp({
+  // Basic configuration
+  name: 'MyApp',
+  debug: process.env.NODE_ENV === 'development',
+  timezone: process.env.TZ ?? 'UTC',
+  
+  // Extensions
+  extensions: [
+    loggingExtension,
+    databaseExtension,
+  ],
+  
+  // App-level providers
+  providers: [
+    {
+      token: CONFIG,
+      factory: () => ({
+        apiUrl: process.env.API_URL ?? 'http://localhost:3000',
+        apiKey: process.env.API_KEY ?? '',
+        maxRetries: Number(process.env.MAX_RETRIES) || 3,
+      }),
+    },
+    {
+      token: USER_SERVICE,
+      factory: () => {
+        const db = inject(DATABASE);
+        const logger = inject(LOGGER);
+        
+        return new UserService(db, logger);
+      },
+    },
+  ],
+  
+  // Expose services
+  expose: {
+    config: CONFIG,
+    logger: LOGGER,
+    db: DATABASE,
+    users: USER_SERVICE,
+  },
+});
+
+await app.run();
+
+// Use exposed services
+app.$.logger.info('Application started');
+app.$.logger.info(`API URL: ${app.$.config.apiUrl}`);
+
+const user = await app.$.users.findById('123');
+```
+
+## Environment-Based Configuration
+
+Organize configuration by environment:
+
+```typescript
+interface EnvironmentConfig {
+  name: string;
+  debug: boolean;
+  timezone: string;
+  database: {
+    host: string;
+    port: number;
+    database: string;
+  };
+  api: {
+    url: string;
+    key: string;
+  };
+}
+
+function getConfig(): EnvironmentConfig {
+  const env = process.env.NODE_ENV ?? 'development';
+  
+  const configs: Record<string, EnvironmentConfig> = {
+    development: {
+      name: 'MyApp-Dev',
+      debug: true,
+      timezone: 'UTC',
+      database: {
+        host: 'localhost',
+        port: 5432,
+        database: 'myapp_dev',
+      },
+      api: {
+        url: 'http://localhost:3000',
+        key: 'dev-key',
+      },
+    },
+    production: {
+      name: 'MyApp',
+      debug: false,
+      timezone: 'UTC',
+      database: {
+        host: process.env.DB_HOST!,
+        port: Number(process.env.DB_PORT),
+        database: process.env.DB_NAME!,
+      },
+      api: {
+        url: process.env.API_URL!,
+        key: process.env.API_KEY!,
+      },
+    },
+  };
+  
+  return configs[env] ?? configs.development;
+}
+
+const config = getConfig();
+
+const app = await createApp({
+  name: config.name,
+  debug: config.debug,
+  timezone: config.timezone,
+  providers: [
+    {
+      token: DATABASE_CONFIG,
+      factory: () => config.database,
+    },
+    {
+      token: API_CONFIG,
+      factory: () => config.api,
+    },
+  ],
+});
+```
+
+## Configuration Files
+
+Load configuration from external files:
+
+```typescript
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+
+interface AppConfigFile {
+  app: {
+    name: string;
+    debug: boolean;
+    timezone: string;
+  };
+  features: {
+    enableCache: boolean;
+    enableMetrics: boolean;
+  };
+}
+
+function loadConfig(): AppConfigFile {
+  const configPath = join(process.cwd(), 'config', 'app.json');
+  const configFile = readFileSync(configPath, 'utf-8');
+  return JSON.parse(configFile);
+}
+
+const config = loadConfig();
+
+const app = await createApp({
+  name: config.app.name,
+  debug: config.app.debug,
+  timezone: config.app.timezone,
+  providers: [
+    {
+      token: FEATURE_FLAGS,
+      factory: () => config.features,
+    },
+  ],
+});
+```
+
+## Best Practices
+
+<CardGroup cols={2}>
+  <Card title="Use Environment Variables" icon="gear">
+    Load sensitive configuration (API keys, database credentials) from environment variables, not hardcoded values.
+  </Card>
+  
+  <Card title="Validate Configuration" icon="shield-check">
+    Validate configuration at startup to fail fast if required values are missing or invalid.
+  </Card>
+  
+  <Card title="Separate Concerns" icon="layer-group">
+    Use extensions for feature-specific configuration, and app-level providers for shared configuration.
+  </Card>
+  
+  <Card title="Type Safety" icon="code">
+    Define TypeScript interfaces for your configuration to catch errors at compile time.
+  </Card>
+</CardGroup>
+
+## Configuration Validation Example
+
+```typescript
+import { z } from 'zod';
+
+const ConfigSchema = z.object({
+  name: z.string().min(1),
+  debug: z.boolean().default(false),
+  timezone: z.string().default('UTC'),
+  database: z.object({
+    host: z.string(),
+    port: z.number().int().positive(),
+    database: z.string(),
+  }),
+  api: z.object({
+    url: z.string().url(),
+    key: z.string().min(10),
+  }),
+});
+
+function loadAndValidateConfig() {
+  const rawConfig = {
+    name: process.env.APP_NAME,
+    debug: process.env.DEBUG === 'true',
+    timezone: process.env.TZ,
+    database: {
+      host: process.env.DB_HOST,
+      port: Number(process.env.DB_PORT),
+      database: process.env.DB_NAME,
+    },
+    api: {
+      url: process.env.API_URL,
+      key: process.env.API_KEY,
+    },
+  };
+  
+  try {
+    return ConfigSchema.parse(rawConfig);
+  } catch (error) {
+    console.error('Configuration validation failed:', error);
+    process.exit(1);
+  }
+}
+
+const config = loadAndValidateConfig();
+
+const app = await createApp({
+  name: config.name,
+  debug: config.debug,
+  timezone: config.timezone,
+  // ... rest of configuration
+});
+```

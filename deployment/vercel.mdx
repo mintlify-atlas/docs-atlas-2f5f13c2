@@ -1,0 +1,295 @@
+---
+title: 'Vercel Deployment'
+description: 'Deploy your Resolid application to Vercel'
+---
+
+Deploy your Resolid application to Vercel's serverless infrastructure with automatic builds and edge network distribution.
+
+## Configuration
+
+Configure your application for Vercel deployment in `resolid.config.ts`:
+
+```typescript resolid.config.ts
+import { defineDevConfig } from "@resolid/dev";
+
+export const { vitePluginOptions, reactRouterConfig } = defineDevConfig({
+  appDirectory: "src",
+  platform: "vercel",
+  nodeVersion: 22,
+});
+```
+
+### Configuration Options
+
+<ParamField path="platform" type="string" required>
+  Set to `"vercel"` for Vercel deployment
+</ParamField>
+
+<ParamField path="nodeVersion" type="number" default="22">
+  Node.js runtime version (18, 20, 22, or 24)
+</ParamField>
+
+<ParamField path="includeFiles" type="string[]">
+  Additional files to include in serverless functions
+</ParamField>
+
+## Server Setup
+
+Create your server entry file using `createHonoVercelServer`:
+
+```typescript src/server.ts
+import { createHonoVercelServer } from "@resolid/dev/http.server";
+
+export default await createHonoVercelServer({
+  configure: async (hono) => {
+    // Add custom middleware or routes
+  },
+  getLoadContext: () => {
+    // Return context available in route loaders/actions
+    return {};
+  },
+});
+```
+
+### Server Options
+
+<ParamField path="configure" type="function">
+  Function to configure the Hono server instance with custom middleware
+</ParamField>
+
+<ParamField path="getLoadContext" type="function">
+  Function returning context object available in React Router loaders and actions
+</ParamField>
+
+## Build Output Structure
+
+The build process generates a `.vercel/output` directory with:
+
+```
+.vercel/output/
+├── config.json          # Vercel routing configuration
+├── static/              # Static assets from build/client
+│   ├── assets/         # Immutable assets (cached 1 year)
+│   └── ...             # Other static files
+└── functions/           # Serverless function bundles
+    ├── _site.func/     # Main application function
+    │   ├── server.mjs  # Bundled server code
+    │   └── .vc-config.json
+    └── ...             # Additional route-specific functions
+```
+
+### Vercel Configuration
+
+The build automatically generates `config.json` with:
+
+- Asset caching rules (1 year for immutable assets)
+- Filesystem routing
+- Function routing for server-rendered pages
+- Response streaming support
+
+## Deployment Steps
+
+<Steps>
+  <Step title="Connect repository">
+    Connect your Git repository to Vercel:
+
+    1. Visit [vercel.com/new](https://vercel.com/new)
+    2. Import your Git repository
+    3. Vercel will auto-detect your framework settings
+  </Step>
+
+  <Step title="Configure build settings">
+    Vercel should auto-detect the settings, but verify:
+
+    - **Build Command**: `npm run build`
+    - **Output Directory**: `.vercel/output`
+    - **Install Command**: `npm install`
+  </Step>
+
+  <Step title="Deploy">
+    Click **Deploy** and Vercel will:
+
+    1. Install dependencies
+    2. Run the build process
+    3. Deploy serverless functions
+    4. Distribute static assets to the edge network
+  </Step>
+</Steps>
+
+## Environment Variables
+
+Set environment variables in the Vercel dashboard:
+
+<ParamField path="NODE_ENV" type="string" default="production">
+  Automatically set by Vercel
+</ParamField>
+
+<ParamField path="VERCEL" type="string">
+  Set to `"1"` by Vercel platform
+</ParamField>
+
+<ParamField path="VERCEL_PROJECT_PRODUCTION_URL" type="string">
+  Production URL of your deployment
+</ParamField>
+
+## Vercel CLI Deployment
+
+Deploy using the Vercel CLI:
+
+```bash
+# Install Vercel CLI
+npm i -g vercel
+
+# Deploy to preview
+vercel
+
+# Deploy to production
+vercel --prod
+```
+
+## Serverless Functions
+
+The Vercel preset automatically creates optimized serverless functions:
+
+- Functions are bundled with only necessary dependencies
+- Uses Node File Trace for minimal bundle size
+- Supports response streaming
+- Configured with appropriate Node.js runtime
+
+Each function's `.vc-config.json` specifies:
+
+```json
+{
+  "handler": "server.mjs",
+  "runtime": "nodejs22.x",
+  "launcherType": "Nodejs",
+  "supportsResponseStreaming": true
+}
+```
+
+## Request Utilities
+
+Vercel provides built-in request utilities:
+
+### Client IP Detection
+
+```typescript src/server.ts
+import { createHonoVercelServer, vercelClientIpGetter } from "@resolid/dev/http.server";
+import { clientIp } from "@resolid/dev/http.middleware";
+
+export default await createHonoVercelServer({
+  configure: async (hono) => {
+    hono.use("*", clientIp(vercelClientIpGetter()));
+  },
+});
+```
+
+Uses the `x-real-ip` header provided by Vercel.
+
+### Request ID
+
+```typescript src/server.ts
+import { createHonoVercelServer, vercelRequestIdGenerator } from "@resolid/dev/http.server";
+import { requestId } from "@resolid/dev/http.middleware";
+
+export default await createHonoVercelServer({
+  configure: async (hono) => {
+    hono.use("*", requestId(vercelRequestIdGenerator()));
+  },
+});
+```
+
+Uses the `x-vercel-id` header for request tracing.
+
+### Request Origin
+
+```typescript src/server.ts
+import { createHonoVercelServer, vercelRequestOriginGetter } from "@resolid/dev/http.server";
+import { requestOrigin } from "@resolid/dev/http.middleware";
+
+export default await createHonoVercelServer({
+  configure: async (hono) => {
+    hono.use("*", requestOrigin(vercelRequestOriginGetter()));
+  },
+});
+```
+
+Returns the production URL from `VERCEL_PROJECT_PRODUCTION_URL`.
+
+## Server Bundles
+
+For large applications, you can split server code into multiple bundles:
+
+```typescript resolid.config.ts
+import { defineDevConfig } from "@resolid/dev";
+
+export const { vitePluginOptions, reactRouterConfig } = defineDevConfig({
+  platform: "vercel",
+  reactRouterConfig: {
+    serverBundles: ({ branch }) => {
+      // Create separate bundles for different route sections
+      if (branch.some((route) => route.id.startsWith("admin"))) {
+        return "admin";
+      }
+      return "site";
+    },
+  },
+});
+```
+
+This creates:
+- `_site.func/` - Main application function
+- `_admin.func/` - Admin section function
+
+Each function is deployed independently with optimized dependencies.
+
+## Performance Optimization
+
+### Edge Network
+
+Static assets are automatically distributed to Vercel's edge network:
+
+- Assets cached at edge locations worldwide
+- Immutable assets cached for 1 year
+- Fast response times globally
+
+### Function Regions
+
+Configure function regions in `vercel.json`:
+
+```json vercel.json
+{
+  "functions": {
+    "src/server.ts": {
+      "memory": 1024,
+      "maxDuration": 10
+    }
+  },
+  "regions": ["iad1"]
+}
+```
+
+## Monitoring
+
+Monitor your deployment in the Vercel dashboard:
+
+- Real-time function logs
+- Performance metrics
+- Error tracking
+- Analytics and insights
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Build fails with module not found">
+    Ensure all dependencies are in `package.json` and `ssr.external` is configured correctly in your Vite config.
+  </Accordion>
+
+  <Accordion title="Function timeout errors">
+    Increase function timeout in `vercel.json` or optimize your server-side code.
+  </Accordion>
+
+  <Accordion title="Large bundle sizes">
+    Use `serverBundles` to split your application into smaller, route-specific functions.
+  </Accordion>
+</AccordionGroup>

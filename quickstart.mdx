@@ -1,80 +1,443 @@
 ---
-title: "Quickstart"
-description: "Start building awesome documentation in minutes"
+title: Quickstart
+description: Build your first Resolid application in minutes
 ---
 
-## Get started in three steps
+# Quickstart
 
-Get your documentation site running locally and make your first customization.
+This guide will walk you through creating your first Resolid application. You'll learn how to set up a basic app with dependency injection, extensions, and services.
 
-### Step 1: Set up your local environment
-
-<AccordionGroup>
-  <Accordion icon="copy" title="Clone your docs locally">
-    During the onboarding process, you created a GitHub repository with your docs content if you didn't already have one. You can find a link to this repository in your [dashboard](https://dashboard.mintlify.com).
+<Steps>
+  <Step title="Install Resolid">
+    First, create a new project directory and install the core package:
     
-    To clone the repository locally so that you can make and preview changes to your docs, follow the [Cloning a repository](https://docs.github.com/en/repositories/creating-and-managing-repositories/cloning-a-repository) guide in the GitHub docs.
-  </Accordion>
-  <Accordion icon="rectangle-terminal" title="Start the preview server">
-    1. Install the Mintlify CLI: `npm i -g mint`
-    2. Navigate to your docs directory and run: `mint dev`
-    3. Open `http://localhost:3000` to see your docs live!
+    ```bash
+    mkdir my-resolid-app
+    cd my-resolid-app
+    npm init -y
+    ```
     
-    <Tip>Your preview updates automatically as you edit files.</Tip>
-  </Accordion>
-</AccordionGroup>
-
-### Step 2: Deploy your changes
-
-<AccordionGroup>
-  <Accordion icon="github" title="Install our GitHub app">
-    Install the Mintlify GitHub app from your [dashboard](https://dashboard.mintlify.com/settings/organization/github-app).
+    Install `@resolid/core`:
     
-    Our GitHub app automatically deploys your changes to your docs site, so you don't need to manage deployments yourself.
-</Accordion>
-<Accordion icon="palette" title="Update your site name and colors">
-    For a first change, let's update the name and colors of your docs site.
+    <CodeGroup>
+    ```bash npm
+    npm install @resolid/core
+    ```
+    
+    ```bash pnpm
+    pnpm add @resolid/core
+    ```
+    
+    ```bash yarn
+    yarn add @resolid/core
+    ```
+    
+    ```bash bun
+    bun add @resolid/core
+    ```
+    </CodeGroup>
+    
+    <Note>
+    Make sure you're using Node.js version 22.13.0 or 24+.
+    </Note>
+  </Step>
+  
+  <Step title="Create your first service">
+    Create a simple logging service. In a new file `src/services/log.ts`:
+    
+    ```typescript
+    // src/services/log.ts
+    export class LogService {
+      log(message: string): void {
+        console.log(`[LOG]: ${message}`);
+      }
+      
+      error(message: string): void {
+        console.error(`[ERROR]: ${message}`);
+      }
+    }
+    ```
+    
+    This service will be managed by Resolid's dependency injection container.
+  </Step>
+  
+  <Step title="Create an extension">
+    Extensions are reusable modules that add functionality to your app. Create `src/extensions/log.ts`:
+    
+    ```typescript
+    // src/extensions/log.ts
+    import { type Extension } from "@resolid/core";
+    import { LogService } from "../services/log";
+    
+    export const logExtension: Extension = {
+      name: "log",
+      providers: [
+        {
+          token: LogService,
+          factory: () => new LogService(),
+        }
+      ],
+      bootstrap: async (context) => {
+        // This runs when the app starts
+        context.emitter.on("app:ready", () => {
+          const log = context.container.get(LogService);
+          log.log("Application is ready!");
+        });
+      }
+    };
+    ```
+    
+    Extensions can register services (providers) and run initialization code (bootstrap).
+  </Step>
+  
+  <Step title="Create your application">
+    Now create your main application file `src/index.ts`:
+    
+    ```typescript
+    // src/index.ts
+    import { createApp } from "@resolid/core";
+    import { logExtension } from "./extensions/log";
+    import { LogService } from "./services/log";
+    
+    async function main() {
+      // Create the app with configuration
+      const app = await createApp({
+        name: "my-app",
+        debug: true,
+        timezone: "UTC",
+        extensions: [logExtension],
+        expose: {
+          log: LogService  // Expose LogService on app.$
+        }
+      });
+      
+      // Access the exposed service
+      app.$.log.log("Hello from Resolid!");
+      
+      // Run bootstrap functions
+      await app.run();
+      
+      // Use services
+      app.$.log.log("App is running");
+      
+      // Clean up when done
+      process.on("SIGINT", async () => {
+        app.$.log.log("Shutting down...");
+        await app.dispose();
+        process.exit(0);
+      });
+    }
+    
+    main().catch(console.error);
+    ```
+  </Step>
+  
+  <Step title="Add TypeScript configuration">
+    Create a `tsconfig.json` file:
+    
+    ```json
+    {
+      "compilerOptions": {
+        "target": "ES2022",
+        "module": "ESNext",
+        "moduleResolution": "bundler",
+        "lib": ["ES2022"],
+        "strict": true,
+        "esModuleInterop": true,
+        "skipLibCheck": true,
+        "forceConsistentCasingInFileNames": true,
+        "resolveJsonModule": true,
+        "outDir": "./dist",
+        "rootDir": "./src"
+      },
+      "include": ["src/**/*"],
+      "exclude": ["node_modules"]
+    }
+    ```
+  </Step>
+  
+  <Step title="Add build scripts">
+    Update your `package.json`:
+    
+    ```json
+    {
+      "name": "my-resolid-app",
+      "version": "1.0.0",
+      "type": "module",
+      "scripts": {
+        "build": "tsc",
+        "start": "node dist/index.js",
+        "dev": "tsc && node dist/index.js"
+      },
+      "dependencies": {
+        "@resolid/core": "latest"
+      },
+      "devDependencies": {
+        "typescript": "^5.9.3"
+      }
+    }
+    ```
+  </Step>
+  
+  <Step title="Run your application">
+    Build and run your app:
+    
+    ```bash
+    npm run dev
+    ```
+    
+    You should see:
+    
+    ```
+    [LOG]: Hello from Resolid!
+    [LOG]: Application is ready!
+    [LOG]: App is running
+    ```
+    
+    Press `Ctrl+C` to stop the app and see the shutdown message.
+  </Step>
+</Steps>
 
-    1. Open `docs.json` in your editor.
-    2. Change the `"name"` field to your project name.
-    3. Update the `"colors"` to match your brand.
-    4. Save and see your changes instantly at `http://localhost:3000`.
+## What you built
 
-    <Tip>Try changing the primary color to see an immediate difference!</Tip>
-  </Accordion>
-</AccordionGroup>
+You just created a Resolid application with:
 
-### Step 3: Go live
+- **Dependency injection**: Services are registered and resolved automatically
+- **Extensions**: Modular code organization with the `logExtension`
+- **Lifecycle management**: Bootstrap functions run on startup
+- **Type safety**: Full TypeScript support with exposed services on `app.$`
+- **Event system**: Communication between extensions via events
 
-<Accordion icon="rocket" title="Publish your docs">
-  1. Commit and push your changes.
-  2. Your docs will update and be live in moments!
-</Accordion>
+## Add more functionality
+
+Let's extend the app with a user service that depends on the log service.
+
+### Create a user service
+
+```typescript
+// src/services/user.ts
+import { inject } from "@resolid/core";
+import { LogService } from "./log";
+
+export class UserService {
+  private logger: LogService;
+  
+  constructor() {
+    this.logger = inject(LogService);
+  }
+  
+  createUser(name: string): { id: string; name: string } {
+    this.logger.log(`Creating user: ${name}`);
+    const user = { id: Math.random().toString(36), name };
+    this.logger.log(`User created with ID: ${user.id}`);
+    return user;
+  }
+  
+  getUser(id: string): { id: string; name: string } | null {
+    this.logger.log(`Fetching user with ID: ${id}`);
+    return null; // Simplified for demo
+  }
+}
+```
+
+### Create a user extension
+
+```typescript
+// src/extensions/user.ts
+import { type Extension } from "@resolid/core";
+import { UserService } from "../services/user";
+
+export const userExtension: Extension = {
+  name: "user",
+  providers: [
+    {
+      token: UserService,
+      factory: () => new UserService(),
+    }
+  ]
+};
+```
+
+### Update your app
+
+```typescript
+// src/index.ts
+import { createApp } from "@resolid/core";
+import { logExtension } from "./extensions/log";
+import { userExtension } from "./extensions/user";
+import { LogService } from "./services/log";
+import { UserService } from "./services/user";
+
+async function main() {
+  const app = await createApp({
+    name: "my-app",
+    debug: true,
+    extensions: [
+      logExtension,
+      userExtension  // Add the user extension
+    ],
+    expose: {
+      log: LogService,
+      users: UserService  // Expose UserService
+    }
+  });
+  
+  await app.run();
+  
+  // Use the user service
+  const user = app.$.users.createUser("Alice");
+  app.$.log.log(`Created: ${JSON.stringify(user)}`);
+  
+  process.on("SIGINT", async () => {
+    await app.dispose();
+    process.exit(0);
+  });
+}
+
+main().catch(console.error);
+```
+
+Run it again:
+
+```bash
+npm run dev
+```
+
+Output:
+
+```
+[LOG]: Application is ready!
+[LOG]: Creating user: Alice
+[LOG]: User created with ID: abc123
+[LOG]: Created: {"id":"abc123","name":"Alice"}
+```
 
 ## Next steps
 
-Now that you have your docs running, explore these key features:
-
 <CardGroup cols={2}>
-
-<Card title="Write Content" icon="pen-to-square" href="/essentials/markdown">
-  Learn MDX syntax and start writing your documentation.
-</Card>
-
-<Card title="Customize style" icon="palette" href="/essentials/settings">
-  Make your docs match your brand perfectly.
-</Card>
-
-<Card title="Add code examples" icon="square-code" href="/essentials/code">
-  Include syntax-highlighted code blocks.
-</Card>
-
-<Card title="API documentation" icon="code" href="/api-reference/introduction">
-  Auto-generate API docs from OpenAPI specs.
-</Card>
-
+  <Card title="Core concepts" icon="book" href="/core/application">
+    Learn about the application lifecycle and architecture
+  </Card>
+  <Card title="Dependency injection" icon="link" href="/modules/dependency-injection">
+    Master the DI container and advanced patterns
+  </Card>
+  <Card title="Extensions" icon="puzzle-piece" href="/core/extensions">
+    Build reusable extensions for your apps
+  </Card>
+  <Card title="Modules" icon="cube" href="/modules/overview">
+    Explore caching, logging, and database modules
+  </Card>
 </CardGroup>
 
-<Note>
-  **Need help?** See our [full documentation](https://mintlify.com/docs) or join our [community](https://mintlify.com/community).
-</Note>
+## Full example
+
+Here's the complete working example:
+
+<Accordion title="Complete code">
+
+**src/services/log.ts**
+```typescript
+export class LogService {
+  log(message: string): void {
+    console.log(`[LOG]: ${message}`);
+  }
+  
+  error(message: string): void {
+    console.error(`[ERROR]: ${message}`);
+  }
+}
+```
+
+**src/services/user.ts**
+```typescript
+import { inject } from "@resolid/core";
+import { LogService } from "./log";
+
+export class UserService {
+  private logger: LogService;
+  
+  constructor() {
+    this.logger = inject(LogService);
+  }
+  
+  createUser(name: string): { id: string; name: string } {
+    this.logger.log(`Creating user: ${name}`);
+    const user = { id: Math.random().toString(36), name };
+    this.logger.log(`User created with ID: ${user.id}`);
+    return user;
+  }
+}
+```
+
+**src/extensions/log.ts**
+```typescript
+import { type Extension } from "@resolid/core";
+import { LogService } from "../services/log";
+
+export const logExtension: Extension = {
+  name: "log",
+  providers: [
+    {
+      token: LogService,
+      factory: () => new LogService(),
+    }
+  ],
+  bootstrap: async (context) => {
+    context.emitter.on("app:ready", () => {
+      const log = context.container.get(LogService);
+      log.log("Application is ready!");
+    });
+  }
+};
+```
+
+**src/extensions/user.ts**
+```typescript
+import { type Extension } from "@resolid/core";
+import { UserService } from "../services/user";
+
+export const userExtension: Extension = {
+  name: "user",
+  providers: [
+    {
+      token: UserService,
+      factory: () => new UserService(),
+    }
+  ]
+};
+```
+
+**src/index.ts**
+```typescript
+import { createApp } from "@resolid/core";
+import { logExtension } from "./extensions/log";
+import { userExtension } from "./extensions/user";
+import { LogService } from "./services/log";
+import { UserService } from "./services/user";
+
+async function main() {
+  const app = await createApp({
+    name: "my-app",
+    debug: true,
+    extensions: [logExtension, userExtension],
+    expose: {
+      log: LogService,
+      users: UserService
+    }
+  });
+  
+  await app.run();
+  
+  const user = app.$.users.createUser("Alice");
+  app.$.log.log(`Created: ${JSON.stringify(user)}`);
+  
+  process.on("SIGINT", async () => {
+    await app.dispose();
+    process.exit(0);
+  });
+}
+
+main().catch(console.error);
+```
+
+</Accordion>

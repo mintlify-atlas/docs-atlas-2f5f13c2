@@ -1,0 +1,408 @@
+---
+title: 'Routes'
+description: 'File-based routing utilities for React Router'
+---
+
+## Overview
+
+The Resolid Framework provides flexible file-based routing through the `flexRoutes` function, which generates React Router route configuration from your file system structure.
+
+## Function: flexRoutes()
+
+Generates route configuration from a file system directory.
+
+```typescript
+async function flexRoutes(
+  options?: FolderRoutesOptions
+): Promise<RouteConfigEntry[]>
+```
+
+<ParamField path="options" type="FolderRoutesOptions">
+  Configuration options for route generation
+</ParamField>
+
+<ParamField path="options.routesDirectory" type="string" default="'routes'">
+  Directory containing route files relative to the app directory
+</ParamField>
+
+<ParamField path="options.ignoredRouteFiles" type="string[]" default="[]">
+  Glob patterns for files to ignore when generating routes
+</ParamField>
+
+<ResponseField name="return" type="Promise<RouteConfigEntry[]>">
+  Array of route configuration entries for React Router
+</ResponseField>
+
+## Basic Usage
+
+In your `react-router.config.ts`:
+
+```typescript
+import { defineDevConfig } from '@resolid/dev';
+import { flexRoutes } from '@resolid/dev/routes';
+import type { Config } from '@react-router/dev/config';
+
+export default defineDevConfig({
+  reactRouterConfig: {
+    routes: await flexRoutes()
+  }
+}) satisfies Config;
+```
+
+## Route File Conventions
+
+The following file extensions are recognized as route modules:
+
+- `.js`
+- `.jsx`
+- `.ts`
+- `.tsx`
+- `.md`
+- `.mdx`
+
+## File-Based Routing Patterns
+
+### Basic Routes
+
+```
+app/routes/
+├── _index.tsx          → /
+├── about.tsx           → /about
+├── contact.tsx         → /contact
+└── pricing.tsx         → /pricing
+```
+
+### Nested Routes
+
+```
+app/routes/
+├── blog.tsx            → /blog (layout)
+├── blog._index.tsx     → /blog (index)
+├── blog.post.$id.tsx   → /blog/post/:id
+└── blog.category.$slug.tsx → /blog/category/:slug
+```
+
+### Dynamic Segments
+
+```
+app/routes/
+├── users.$id.tsx       → /users/:id
+├── posts.$slug.tsx     → /posts/:slug
+└── products.$category.$id.tsx → /products/:category/:id
+```
+
+### Optional Segments
+
+```
+app/routes/
+└── users.$id?.tsx      → /users/:id? (optional)
+```
+
+### Splat Routes
+
+```
+app/routes/
+└── docs.$.tsx          → /docs/* (catch-all)
+```
+
+### Pathless Layouts
+
+```
+app/routes/
+├── _auth.tsx           → Layout without path
+├── _auth.login.tsx     → /login (uses _auth layout)
+└── _auth.register.tsx  → /register (uses _auth layout)
+```
+
+## Configuration Options
+
+### Custom Routes Directory
+
+```typescript
+export default defineDevConfig({
+  reactRouterConfig: {
+    routes: await flexRoutes({
+      routesDirectory: 'pages' // Use app/pages instead of app/routes
+    })
+  }
+});
+```
+
+### Ignore Files
+
+Exclude specific files from route generation:
+
+```typescript
+export default defineDevConfig({
+  reactRouterConfig: {
+    routes: await flexRoutes({
+      ignoredRouteFiles: [
+        '**/*.test.tsx',
+        '**/*.stories.tsx',
+        '**/components/**',
+        '**/_*.tsx' // Ignore files starting with underscore except layouts
+      ]
+    })
+  }
+});
+```
+
+## Type Definitions
+
+### FolderRoutesOptions
+
+```typescript
+type FolderRoutesOptions = {
+  routesDirectory?: string;
+  ignoredRouteFiles?: string[];
+}
+```
+
+### RouteConfigEntry
+
+```typescript
+type RouteConfigEntry = {
+  path?: string;
+  index?: boolean;
+  caseSensitive?: boolean;
+  id: string;
+  file: string;
+  children?: RouteConfigEntry[];
+}
+```
+
+## Route File Structure
+
+Each route file can export:
+
+### Loader
+
+```typescript
+import type { Route } from 'react-router';
+
+export const loader = async ({ params, request }: Route.LoaderArgs) => {
+  const post = await getPost(params.id);
+  return { post };
+};
+```
+
+### Action
+
+```typescript
+export const action = async ({ request }: Route.ActionArgs) => {
+  const formData = await request.formData();
+  await createPost(formData);
+  return redirect('/blog');
+};
+```
+
+### Component
+
+```typescript
+import { useLoaderData } from 'react-router';
+
+export default function BlogPost() {
+  const { post } = useLoaderData<typeof loader>();
+  return <article>{post.title}</article>;
+}
+```
+
+### Meta
+
+```typescript
+import { mergeMeta } from '@resolid/dev/router';
+
+export const meta = mergeMeta(({ data }) => [
+  { title: data.post.title },
+  { name: 'description', content: data.post.excerpt }
+]);
+```
+
+### Headers
+
+```typescript
+export const headers = () => ({
+  'Cache-Control': 'public, max-age=3600'
+});
+```
+
+### Links
+
+```typescript
+export const links = () => [
+  { rel: 'stylesheet', href: '/styles/blog.css' }
+];
+```
+
+## Complete Example
+
+### Project Structure
+
+```
+app/
+├── routes/
+│   ├── _index.tsx
+│   ├── about.tsx
+│   ├── _auth.tsx
+│   ├── _auth.login.tsx
+│   ├── _auth.register.tsx
+│   ├── blog.tsx
+│   ├── blog._index.tsx
+│   ├── blog.post.$id.tsx
+│   ├── blog.category.$slug.tsx
+│   ├── docs.$.tsx
+│   └── api.users.$id.tsx
+└── root.tsx
+```
+
+### Configuration
+
+```typescript
+// react-router.config.ts
+import { defineDevConfig } from '@resolid/dev';
+import { flexRoutes } from '@resolid/dev/routes';
+import type { Config } from '@react-router/dev/config';
+
+export default defineDevConfig({
+  appDirectory: 'app',
+  reactRouterConfig: {
+    routes: await flexRoutes({
+      routesDirectory: 'routes',
+      ignoredRouteFiles: [
+        '**/*.test.tsx',
+        '**/components/**'
+      ]
+    })
+  }
+}) satisfies Config;
+```
+
+### Example Route Files
+
+```typescript
+// app/routes/_index.tsx
+import { mergeMeta } from '@resolid/dev/router';
+
+export const meta = mergeMeta(() => [
+  { title: 'Home' },
+  { name: 'description', content: 'Welcome to our site' }
+]);
+
+export default function Index() {
+  return <h1>Home Page</h1>;
+}
+```
+
+```typescript
+// app/routes/blog.tsx
+import { Outlet } from 'react-router';
+
+export default function BlogLayout() {
+  return (
+    <div>
+      <nav>{/* Blog navigation */}</nav>
+      <Outlet />
+    </div>
+  );
+}
+```
+
+```typescript
+// app/routes/blog.post.$id.tsx
+import { useLoaderData } from 'react-router';
+import { mergeMeta } from '@resolid/dev/router';
+import type { Route } from 'react-router';
+
+export const loader = async ({ params }: Route.LoaderArgs) => {
+  const post = await getPost(params.id);
+  return { post };
+};
+
+export const meta = mergeMeta(({ data }) => [
+  { title: data.post.title },
+  { name: 'description', content: data.post.excerpt }
+]);
+
+export default function BlogPost() {
+  const { post } = useLoaderData<typeof loader>();
+  return (
+    <article>
+      <h1>{post.title}</h1>
+      <div>{post.content}</div>
+    </article>
+  );
+}
+```
+
+```typescript
+// app/routes/_auth.tsx
+import { Outlet } from 'react-router';
+
+export default function AuthLayout() {
+  return (
+    <div className="auth-layout">
+      <Outlet />
+    </div>
+  );
+}
+```
+
+```typescript
+// app/routes/_auth.login.tsx
+import { Form } from 'react-router';
+import type { Route } from 'react-router';
+
+export const action = async ({ request }: Route.ActionArgs) => {
+  const formData = await request.formData();
+  await login(formData);
+  return redirect('/dashboard');
+};
+
+export default function Login() {
+  return (
+    <Form method="post">
+      <input type="email" name="email" />
+      <input type="password" name="password" />
+      <button type="submit">Login</button>
+    </Form>
+  );
+}
+```
+
+## Advanced Patterns
+
+### API Routes
+
+Create API endpoints that return JSON:
+
+```typescript
+// app/routes/api.users.$id.tsx
+import type { Route } from 'react-router';
+
+export const loader = async ({ params }: Route.LoaderArgs) => {
+  const user = await getUser(params.id);
+  return Response.json(user);
+};
+```
+
+### Markdown Routes
+
+Use `.mdx` files for content-driven routes:
+
+```markdown
+<!-- app/routes/blog.post.hello-world.mdx -->
+---
+meta:
+  - title: Hello World
+  - name: description
+    content: My first blog post
+---
+
+# Hello World
+
+Welcome to my blog!
+```
+
+## Source Code
+
+Location: `packages/dev/src/routes/flex/index.ts`

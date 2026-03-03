@@ -1,0 +1,243 @@
+---
+title: inject()
+description: API reference for the inject function in Resolid Framework's dependency injection system
+---
+
+The `inject()` function retrieves dependencies from the current injection context. It must be called within a factory function registered in a container.
+
+## Import
+
+```typescript
+import { inject } from '@resolid/framework/di';
+```
+
+## Signature
+
+```typescript
+function inject<T>(token: Token<T>): T
+function inject<T>(token: Token<T>, options: { optional: true }): T | undefined
+function inject<T>(token: Token<T>, options: { lazy: true }): () => T
+function inject<T>(
+  token: Token<T>,
+  options: { lazy: true; optional: true }
+): () => T | undefined
+```
+
+## Parameters
+
+- `token` - The token identifying the dependency to inject
+- `options` (optional) - Configuration options:
+  - `optional`: If `true`, returns `undefined` instead of throwing when dependency is not found
+  - `lazy`: If `true`, returns a function that resolves the dependency when called
+
+## Returns
+
+- Without options: The resolved dependency instance
+- With `optional: true`: The dependency instance or `undefined`
+- With `lazy: true`: A function that returns the dependency when called
+- With `lazy: true, optional: true`: A function that returns the dependency or `undefined`
+
+## Throws
+
+- Throws an error if called outside of an injection context
+- Throws an error if the dependency is not registered (unless `optional: true`)
+- Throws an error if a circular dependency is detected
+
+## Usage
+
+### Basic Injection
+
+Inject required dependencies in factory functions:
+
+```typescript
+class UserService {
+  constructor(private logger: LogService) {}
+}
+
+container.add({
+  token: LogService,
+  factory: () => new LogService(),
+});
+
+container.add({
+  token: UserService,
+  factory: () => new UserService(inject(LogService)),
+});
+```
+
+### Optional Dependencies
+
+Use the `optional` flag to handle dependencies that may not be registered:
+
+```typescript
+class AnalyticsService {
+  constructor(private logger?: LogService) {}
+
+  track(event: string) {
+    if (this.logger) {
+      this.logger.log(`Analytics: ${event}`);
+    }
+  }
+}
+
+container.add({
+  token: AnalyticsService,
+  factory: () => new AnalyticsService(
+    inject(LogService, { optional: true })
+  ),
+});
+
+const analytics = container.get(AnalyticsService);
+analytics.track('page_view'); // Works even if LogService is not registered
+```
+
+### Lazy Injection
+
+Use the `lazy` flag to defer dependency resolution until it's actually needed:
+
+```typescript
+class ReportService {
+  constructor(private getLogger: () => LogService) {}
+
+  async generateReport() {
+    // Logger is only resolved when this method is called
+    const logger = this.getLogger();
+    logger.log('Generating report...');
+    return 'Report data';
+  }
+}
+
+container.add({
+  token: LogService,
+  factory: () => new LogService(),
+});
+
+container.add({
+  token: ReportService,
+  factory: () => new ReportService(
+    inject(LogService, { lazy: true })
+  ),
+});
+```
+
+Lazy injection is useful for:
+
+- Breaking circular dependencies
+- Deferring expensive initialization
+- Conditional dependency resolution
+
+### Combining Lazy and Optional
+
+You can combine both flags for maximum flexibility:
+
+```typescript
+class FeatureService {
+  constructor(private getCache?: () => CacheService | undefined) {}
+
+  async getData(key: string) {
+    const cache = this.getCache?.();
+    
+    if (cache) {
+      const cached = await cache.get(key);
+      if (cached) return cached;
+    }
+
+    // Fetch data without cache
+    return await this.fetchData(key);
+  }
+}
+
+container.add({
+  token: FeatureService,
+  factory: () => new FeatureService(
+    inject(CacheService, { lazy: true, optional: true })
+  ),
+});
+```
+
+## Injection Context
+
+The `inject()` function must be called within an injection context, which is automatically created when:
+
+- A factory function is executed by the container
+- Dependencies are being resolved during `container.get()`
+
+Calling `inject()` outside of these contexts will throw an error:
+
+```typescript
+// ❌ Error: inject() must be called within an injection context
+const logger = inject(LogService);
+
+// ✅ Correct: Called within a factory function
+container.add({
+  token: UserService,
+  factory: () => new UserService(inject(LogService)),
+});
+```
+
+## Examples
+
+### Multi-level Dependency Injection
+
+```typescript
+class DatabaseService {
+  constructor(private config: ConfigService) {}
+}
+
+class UserRepository {
+  constructor(private db: DatabaseService) {}
+}
+
+class UserService {
+  constructor(private repo: UserRepository) {}
+}
+
+container.add({
+  token: ConfigService,
+  factory: () => new ConfigService(),
+});
+
+container.add({
+  token: DatabaseService,
+  factory: () => new DatabaseService(inject(ConfigService)),
+});
+
+container.add({
+  token: UserRepository,
+  factory: () => new UserRepository(inject(DatabaseService)),
+});
+
+container.add({
+  token: UserService,
+  factory: () => new UserService(inject(UserRepository)),
+});
+
+const userService = container.get(UserService);
+```
+
+### Optional Feature Flag
+
+```typescript
+const FEATURE_FLAG = Symbol('FEATURE_FLAG');
+
+class AppService {
+  private featureEnabled: boolean;
+
+  constructor() {
+    this.featureEnabled = inject(FEATURE_FLAG, { optional: true }) ?? false;
+  }
+
+  doSomething() {
+    if (this.featureEnabled) {
+      // New feature implementation
+    } else {
+      // Legacy implementation
+    }
+  }
+}
+
+container.add({
+  token: AppService,
+  factory: () => new AppService(),
+});
+```

@@ -1,0 +1,217 @@
+---
+title: Container
+description: API reference for the Container class in Resolid Framework's dependency injection system
+---
+
+The `Container` class is the core of the dependency injection system. It manages provider registration, dependency resolution, and lifecycle management.
+
+## Import
+
+```typescript
+import { Container } from '@resolid/framework/di';
+```
+
+## Constructor
+
+```typescript
+const container = new Container();
+```
+
+Creates a new dependency injection container instance.
+
+## Methods
+
+### add()
+
+Registers a provider in the container.
+
+```typescript
+add(provider: Provider): void
+```
+
+#### Parameters
+
+- `provider` - A provider configuration object containing:
+  - `token`: The token to identify the dependency
+  - `factory`: A factory function that creates the dependency instance
+  - `scope` (optional): Either `"singleton"` (default) or `"transient"`
+
+#### Example
+
+```typescript
+const container = new Container();
+
+// Register a singleton service
+container.add({
+  token: LogService,
+  factory: () => new LogService(),
+});
+
+// Register a transient service
+container.add({
+  token: LogService,
+  factory: () => new LogService(),
+  scope: 'transient',
+});
+
+// Register with a symbol token
+const API_URL = Symbol('API_URL');
+container.add({
+  token: API_URL,
+  factory: () => 'https://api.example.com',
+});
+```
+
+### get()
+
+Retrieves a dependency from the container. Has multiple overloads for different use cases.
+
+```typescript
+get<T>(token: Token<T>): T
+get<T>(token: Token<T>, options: { optional: true }): T | undefined
+get<T>(token: Token<T>, options: { lazy: true }): () => T
+get<T>(token: Token<T>, options: { lazy: true; optional: true }): () => T | undefined
+get<T>(token: Token<T>, options: { lazy: false; optional?: boolean }): T | undefined
+```
+
+#### Parameters
+
+- `token` - The token identifying the dependency to retrieve
+- `options` (optional) - Configuration options:
+  - `optional`: If `true`, returns `undefined` instead of throwing when dependency is not found
+  - `lazy`: If `true`, returns a function that resolves the dependency when called
+
+#### Returns
+
+- Without options: The resolved dependency instance
+- With `optional: true`: The dependency instance or `undefined`
+- With `lazy: true`: A function that returns the dependency when called
+- With `lazy: true, optional: true`: A function that returns the dependency or `undefined`
+
+#### Throws
+
+- Throws an error if the dependency is not registered (unless `optional: true`)
+- Throws an error if a circular dependency is detected
+
+#### Examples
+
+```typescript
+// Basic usage
+const logger = container.get(LogService);
+
+// Optional dependency
+const cache = container.get(CacheService, { optional: true });
+if (cache) {
+  cache.set('key', 'value');
+}
+
+// Lazy loading
+const getLogger = container.get(LogService, { lazy: true });
+const logger = getLogger(); // Resolved when called
+
+// Lazy + optional
+const getCache = container.get(CacheService, { lazy: true, optional: true });
+const cache = getCache(); // Returns CacheService | undefined
+```
+
+### dispose()
+
+Disposes all singleton instances that implement the `Disposable` interface.
+
+```typescript
+async dispose(): Promise<void>
+```
+
+#### Returns
+
+A promise that resolves when all disposable singletons have been disposed.
+
+#### Throws
+
+Throws an error if any singleton fails to dispose, collecting all errors into a single error message.
+
+#### Example
+
+```typescript
+class DatabaseService {
+  private connection: Connection;
+
+  async connect() {
+    this.connection = await createConnection();
+  }
+
+  async dispose() {
+    await this.connection.close();
+  }
+}
+
+container.add({
+  token: DatabaseService,
+  factory: () => new DatabaseService(),
+});
+
+const db = container.get(DatabaseService);
+await db.connect();
+
+// Clean up all resources
+await container.dispose();
+```
+
+## Features
+
+### Singleton vs Transient Scope
+
+- **Singleton** (default): The same instance is returned every time `get()` is called
+- **Transient**: A new instance is created each time `get()` is called
+
+```typescript
+// Singleton - same instance
+container.add({
+  token: LogService,
+  factory: () => new LogService(),
+});
+
+const log1 = container.get(LogService);
+const log2 = container.get(LogService);
+console.log(log1 === log2); // true
+
+// Transient - different instances
+container.add({
+  token: RequestContext,
+  factory: () => new RequestContext(),
+  scope: 'transient',
+});
+
+const ctx1 = container.get(RequestContext);
+const ctx2 = container.get(RequestContext);
+console.log(ctx1 === ctx2); // false
+```
+
+### Circular Dependency Detection
+
+The container automatically detects circular dependencies and throws an error with a helpful message showing the dependency chain.
+
+```typescript
+container.add({
+  token: ApiService,
+  factory: () => new ApiService(inject(AuthService)),
+});
+
+container.add({
+  token: AuthService,
+  factory: () => new AuthService(inject(ApiService)),
+});
+
+// Throws: "Circular dependency detected: ApiService -> AuthService -> ApiService"
+container.get(ApiService);
+```
+
+### Resource Cleanup
+
+Singleton instances that implement the `Disposable` interface will be automatically cleaned up when `dispose()` is called.
+
+```typescript
+interface Disposable {
+  dispose(): Promise<void> | void;
+}
+```

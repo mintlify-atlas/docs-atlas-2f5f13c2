@@ -1,0 +1,393 @@
+---
+title: Scopes
+description: Understanding singleton and transient scopes in Resolid DI
+---
+
+# Scopes
+
+Scopes control the lifetime and sharing behavior of service instances in the dependency injection container. Resolid supports two scopes: **singleton** (default) and **transient**.
+
+## Scope Types
+
+```typescript
+export type Scope = "singleton" | "transient";
+```
+
+### Singleton Scope
+
+**Singleton** is the default scope. A singleton service is instantiated once and the same instance is returned for all subsequent requests.
+
+```typescript
+container.add({
+  token: LogService,
+  factory: () => new LogService(),
+  scope: 'singleton' // Optional - this is the default
+});
+
+const log1 = container.get(LogService);
+const log2 = container.get(LogService);
+
+console.log(log1 === log2); // true - same instance
+```
+
+### Transient Scope
+
+**Transient** services are created fresh every time they are requested. Each call to `container.get()` or `inject()` returns a new instance.
+
+```typescript
+container.add({
+  token: RequestContext,
+  factory: () => new RequestContext(),
+  scope: 'transient'
+});
+
+const ctx1 = container.get(RequestContext);
+const ctx2 = container.get(RequestContext);
+
+console.log(ctx1 === ctx2); // false - different instances
+```
+
+## How Scopes Work Internally
+
+The container uses different strategies for singleton and transient scopes:
+
+### Singleton Cache
+
+Singleton instances are stored in a cache after creation:
+
+```typescript
+// From container/index.ts
+private readonly _singletons = new Map<Token, unknown>();
+```
+
+When resolving a singleton dependency:
+
+```typescript
+const singleton = provider.scope !== "transient";
+
+if (singleton && this._singletons.has(token)) {
+  return this._singletons.get(token) as T;
+}
+
+// ... create instance ...
+
+if (singleton) {
+  this._singletons.set(token, value);
+}
+```
+
+### Transient Instantiation
+
+Transient services bypass the cache and call the factory function every time:
+
+```typescript
+class LogService {
+  public instanceId = Math.random();
+}
+
+container.add({
+  token: LogService,
+  factory: () => new LogService(),
+  scope: 'transient'
+});
+
+const log1 = container.get(LogService);
+const log2 = container.get(LogService);
+
+console.log(log1.instanceId); // e.g., 0.12345
+console.log(log2.instanceId); // e.g., 0.67890
+```
+
+## When to Use Each Scope
+
+### Use Singleton When:
+
+1. **Stateless services**: Services that don't maintain request-specific state
+
+```typescript
+class EmailService {
+  async send(to: string, subject: string, body: string) {
+    // Stateless operation
+  }
+}
+
+container.add({
+  token: EmailService,
+  factory: () => new EmailService()
+  // singleton by default
+});
+```
+
+2. **Shared resources**: Database connections, configuration, caches
+
+```typescript
+class DatabaseService {
+  private pool: ConnectionPool;
+  
+  async connect() {
+    this.pool = createConnectionPool();
+  }
+  
+  async query(sql: string) {
+    return this.pool.query(sql);
+  }
+}
+
+container.add({
+  token: DatabaseService,
+  factory: () => new DatabaseService(),
+  scope: 'singleton' // Share the connection pool
+});
+```
+
+3. **State management**: Services that maintain application-level state
+
+```typescript
+class CacheService {
+  private cache = new Map<string, any>();
+  
+  set(key: string, value: any) {
+    this.cache.set(key, value);
+  }
+  
+  get(key: string) {
+    return this.cache.get(key);
+  }
+}
+
+container.add({
+  token: CacheService,
+  factory: () => new CacheService(),
+  scope: 'singleton' // Share the cache across the app
+});
+```
+
+4. **Performance**: When object creation is expensive and the instance can be safely shared
+
+### Use Transient When:
+
+1. **Stateful per-request services**: Services that maintain request-specific state
+
+```typescript
+class RequestContext {
+  constructor(
+    public readonly requestId: string = crypto.randomUUID(),
+    public readonly startTime: number = Date.now()
+  ) {}
+  
+  getData(): any {
+    return this.data;
+  }
+  
+  setData(data: any) {
+    this.data = data;
+  }
+}
+
+container.add({
+  token: RequestContext,
+  factory: () => new RequestContext(),
+  scope: 'transient' // Each request gets its own context
+});
+```
+
+2. **Mutable objects**: When shared state could cause issues
+
+```typescript
+class QueryBuilder {
+  private conditions: string[] = [];
+  
+  where(condition: string) {
+    this.conditions.push(condition);
+    return this;
+  }
+  
+  build() {
+    return this.conditions.join(' AND ');
+  }
+}
+
+container.add({
+  token: QueryBuilder,
+  factory: () => new QueryBuilder(),
+  scope: 'transient' // Each use gets a fresh builder
+});
+```
+
+3. **Testing**: When you need isolated instances for testing
+
+4. **Short-lived objects**: When instances should not persist longer than their immediate use
+
+## Scope Interactions
+
+When a singleton service depends on a transient service, the transient dependency is injected only once (when the singleton is created):
+
+```typescript
+class TransientService {
+  id = Math.random();
+}
+
+class SingletonService {
+  constructor(private transient: TransientService) {}
+  
+  getTransientId() {
+    return this.transient.id;
+  }
+}
+
+container.add({
+  token: TransientService,
+  factory: () => new TransientService(),
+  scope: 'transient'
+});
+
+container.add({
+  token: SingletonService,
+  factory: () => new SingletonService(inject(TransientService)),
+  scope: 'singleton'
+});
+
+const service = container.get(SingletonService);
+const id1 = service.getTransientId();
+const id2 = service.getTransientId();
+
+console.log(id1 === id2); // true - same transient instance captured
+```
+
+<Warning>
+Be careful when injecting transient services into singletons. The transient service will effectively become a singleton because it's only created once.
+</Warning>
+
+### Lazy Injection for Dynamic Resolution
+
+Use lazy injection to get fresh transient instances:
+
+```typescript
+class SingletonService {
+  constructor(private getTransient: () => TransientService) {}
+  
+  doWork() {
+    const transient = this.getTransient(); // Fresh instance each time
+    return transient.id;
+  }
+}
+
+container.add({
+  token: TransientService,
+  factory: () => new TransientService(),
+  scope: 'transient'
+});
+
+container.add({
+  token: SingletonService,
+  factory: () => new SingletonService(
+    inject(TransientService, { lazy: true })
+  ),
+  scope: 'singleton'
+});
+
+const service = container.get(SingletonService);
+const id1 = service.doWork();
+const id2 = service.doWork();
+
+console.log(id1 !== id2); // true - different instances
+```
+
+## Disposal and Scopes
+
+Only **singleton** instances are disposed when `container.dispose()` is called. Transient instances are not tracked by the container and must be managed manually.
+
+```typescript
+class DatabaseService {
+  private connected = false;
+  
+  async connect() {
+    this.connected = true;
+  }
+  
+  async dispose() {
+    this.connected = false;
+    console.log('Database connection closed');
+  }
+}
+
+container.add({
+  token: DatabaseService,
+  factory: () => new DatabaseService(),
+  scope: 'singleton' // Will be disposed automatically
+});
+
+const db = container.get(DatabaseService);
+await db.connect();
+
+await container.dispose(); // Calls db.dispose()
+```
+
+See [Disposal](/advanced/disposal) for more details on resource cleanup.
+
+## Performance Considerations
+
+### Singleton Benefits
+
+- **Memory efficiency**: Only one instance exists
+- **Initialization cost**: Factory runs only once
+- **Shared state**: Useful for caches and pools
+
+### Transient Benefits
+
+- **Isolation**: No shared state between uses
+- **Thread safety**: Each call gets its own instance (relevant for worker threads)
+- **Testing**: Easier to test in isolation
+
+### Benchmark Example
+
+```typescript
+class ExpensiveService {
+  constructor() {
+    // Simulate expensive initialization
+    for (let i = 0; i < 1000000; i++) {}
+  }
+}
+
+// Singleton: Factory runs once
+container.add({
+  token: ExpensiveService,
+  factory: () => new ExpensiveService(),
+  scope: 'singleton'
+});
+
+const start1 = performance.now();
+for (let i = 0; i < 1000; i++) {
+  container.get(ExpensiveService);
+}
+const end1 = performance.now();
+console.log(`Singleton: ${end1 - start1}ms`); // Fast after first call
+
+// Transient: Factory runs every time
+container.add({
+  token: ExpensiveService,
+  factory: () => new ExpensiveService(),
+  scope: 'transient'
+});
+
+const start2 = performance.now();
+for (let i = 0; i < 1000; i++) {
+  container.get(ExpensiveService);
+}
+const end2 = performance.now();
+console.log(`Transient: ${end2 - start2}ms`); // Slow - 1000x initialization
+```
+
+## Best Practices
+
+1. **Default to singleton** unless you have a specific reason to use transient
+2. **Avoid stateful singletons** in multi-tenant applications
+3. **Use lazy injection** when singletons need fresh transient instances
+4. **Document scope choices** especially when using transient for non-obvious reasons
+5. **Be mindful of disposal** - only singletons are automatically cleaned up
+
+## Related Documentation
+
+- [Providers](/advanced/providers) - How to create and register providers
+- [Disposal](/advanced/disposal) - Resource cleanup for singleton services
+- [Circular Dependencies](/advanced/circular-dependencies) - How scopes affect circular dependency detection

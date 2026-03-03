@@ -1,0 +1,296 @@
+---
+title: Extensions
+description: Learn how to create and use extensions to extend Resolid Framework functionality
+---
+
+Extensions are the primary way to add functionality to a Resolid application. They can register services, define bootstrap logic, and integrate with the application lifecycle.
+
+## Extension Interface
+
+An extension is defined by the `Extension` interface:
+
+```typescript
+export interface Extension {
+  name: string;
+  providers?: Provider[];
+  bootstrap?: BootstrapFunction;
+}
+
+type BootstrapFunction = (context: AppContext) => void | Promise<void>;
+```
+
+### Properties
+
+- **`name`** - Unique identifier for the extension
+- **`providers`** - Optional array of dependency injection providers
+- **`bootstrap`** - Optional function executed during app startup
+
+## Creating Extensions
+
+### Basic Extension
+
+A simple extension with providers:
+
+```typescript
+import { type Extension } from '@resolid/core';
+
+const LOGGER = Symbol('LOGGER');
+
+const loggerExtension: Extension = {
+  name: 'logger',
+  providers: [
+    {
+      token: LOGGER,
+      factory: () => ({
+        log: (message: string) => console.log(message),
+        error: (message: string) => console.error(message),
+      }),
+    },
+  ],
+};
+```
+
+### Extension with Bootstrap
+
+Extensions can perform initialization logic during app startup:
+
+```typescript
+const databaseExtension: Extension = {
+  name: 'database',
+  providers: [
+    {
+      token: DATABASE,
+      factory: () => new Database(),
+    },
+  ],
+  bootstrap: async (context) => {
+    const db = context.container.get(DATABASE);
+    await db.connect();
+    
+    context.emitter.on('app:shutdown', async () => {
+      await db.disconnect();
+    });
+  },
+};
+```
+
+<Note>
+Bootstrap functions receive the `AppContext` which provides access to the container, emitter, and path resolvers.
+</Note>
+
+## Extension Creators
+
+For extensions that need configuration, use the `ExtensionCreator` pattern:
+
+```typescript
+export type ExtensionCreator = (context: AppContext) => Extension;
+```
+
+### Configurable Extension Example
+
+```typescript
+import { type ExtensionCreator } from '@resolid/core';
+
+const MAIL_SERVICE = Symbol('MAIL_SERVICE');
+
+interface MailConfig {
+  from?: string;
+  host?: string;
+  port?: number;
+}
+
+const createMailExtension = (config: MailConfig = {}): ExtensionCreator => {
+  return (context) => ({
+    name: 'mail-extension',
+    providers: [
+      {
+        token: MAIL_SERVICE,
+        factory: () => ({
+          from: config.from ?? 'noreply@example.com',
+          host: config.host ?? 'localhost',
+          port: config.port ?? 587,
+          send: (to: string, subject: string, body: string) => {
+            // Send email logic
+          },
+        }),
+      },
+    ],
+    bootstrap: async (ctx) => {
+      if (ctx.debug) {
+        console.log(`Mail extension configured: ${config.host}:${config.port}`);
+      }
+    },
+  });
+};
+```
+
+### Using Configurable Extensions
+
+```typescript
+const app = await createApp({
+  name: 'MyApp',
+  extensions: [
+    createMailExtension({
+      from: 'admin@myapp.com',
+      host: 'smtp.myapp.com',
+      port: 465,
+    }),
+  ],
+});
+```
+
+## Real-World Example
+
+Here's a complete example of an HTTP server extension:
+
+```typescript
+import { createServer, type Server } from 'node:http';
+import { type Extension, type AppContext } from '@resolid/core';
+
+const HTTP_SERVER = Symbol('HTTP_SERVER');
+
+interface HttpServerConfig {
+  port?: number;
+  host?: string;
+}
+
+function createHttpServerExtension(config: HttpServerConfig = {}) {
+  return (context: AppContext): Extension => ({
+    name: 'http-server',
+    providers: [
+      {
+        token: HTTP_SERVER,
+        factory: () => {
+          const server = createServer((req, res) => {
+            res.writeHead(200, { 'Content-Type': 'text/plain' });
+            res.end('Hello from Resolid!');
+          });
+
+          return {
+            server,
+            start: () => {
+              const port = config.port ?? 3000;
+              const host = config.host ?? 'localhost';
+              server.listen(port, host);
+              return { port, host };
+            },
+            dispose: async () => {
+              return new Promise<void>((resolve) => {
+                server.close(() => resolve());
+              });
+            },
+          };
+        },
+      },
+    ],
+    bootstrap: async (ctx) => {
+      const httpServer = ctx.container.get(HTTP_SERVER);
+      const { port, host } = httpServer.start();
+      
+      if (ctx.debug) {
+        console.log(`HTTP server listening on http://${host}:${port}`);
+      }
+      
+      ctx.emitter.on('app:ready', () => {
+        console.log('Server is ready to accept connections');
+      });
+    },
+  });
+}
+```
+
+### Using the HTTP Server Extension
+
+```typescript
+const app = await createApp({
+  name: 'WebApp',
+  debug: true,
+  extensions: [
+    createHttpServerExtension({ port: 8080 }),
+  ],
+});
+
+await app.run();
+// Server starts listening on port 8080
+```
+
+## Bootstrap Execution
+
+Bootstrap functions from all extensions execute in parallel when `app.run()` is called:
+
+```typescript
+const app = await createApp({
+  name: 'MyApp',
+  extensions: [
+    {
+      name: 'extension-a',
+      bootstrap: async () => {
+        await new Promise(resolve => setTimeout(resolve, 100));
+        console.log('A initialized');
+      },
+    },
+    {
+      name: 'extension-b',
+      bootstrap: async () => {
+        await new Promise(resolve => setTimeout(resolve, 50));
+        console.log('B initialized');
+      },
+    },
+  ],
+});
+
+await app.run();
+// Output order may vary:
+// B initialized
+// A initialized
+```
+
+<Warning>
+Since bootstrap functions run in parallel, be careful about dependencies between extensions. If extension B depends on extension A being initialized, coordinate using events or ensure proper ordering.
+</Warning>
+
+## Providers in Extensions
+
+Extensions can register multiple providers:
+
+```typescript
+const storageExtension: Extension = {
+  name: 'storage',
+  providers: [
+    { 
+      token: CACHE,
+      factory: () => new InMemoryCache(),
+    },
+    { 
+      token: FILE_STORAGE,
+      factory: () => new FileStorage(),
+    },
+    { 
+      token: BLOB_STORAGE,
+      factory: () => new BlobStorage(),
+    },
+  ],
+};
+```
+
+See [Dependency Injection](/core/dependency-injection) for more details on providers.
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Use ExtensionCreator for configurable extensions">
+    When your extension needs configuration, wrap it in a function that returns an `ExtensionCreator`. This provides type-safe configuration and access to the `AppContext`.
+  </Accordion>
+  
+  <Accordion title="Name extensions clearly">
+    Use descriptive, unique names for extensions. These names are useful for debugging and understanding the application structure.
+  </Accordion>
+  
+  <Accordion title="Implement cleanup in providers">
+    If your providers allocate resources (connections, file handles, etc.), implement a `dispose()` method that will be automatically called when the app shuts down.
+  </Accordion>
+  
+  <Accordion title="Use events for inter-extension communication">
+    Rather than directly coupling extensions, use the event emitter available in `AppContext` to communicate between extensions.
+  </Accordion>
+</AccordionGroup>

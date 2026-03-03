@@ -1,0 +1,294 @@
+---
+title: AppContext
+description: Context object providing access to application configuration, services, and utilities
+---
+
+## Type Definition
+
+```typescript
+type AppContext = AppConfig & {
+  emitter: Emitter;
+  container: Container;
+  rootPath: PathResolver;
+  runtimePath: PathResolver;
+}
+```
+
+The AppContext type provides a context object that extensions and bootstrap functions can use to access application configuration, the dependency injection container, event emitter, and path resolution utilities.
+
+## Properties
+
+### name
+
+```typescript
+readonly name: string
+```
+
+<ParamField path="name" type="string">
+  The name of the application.
+</ParamField>
+
+### debug
+
+```typescript
+readonly debug?: boolean
+```
+
+<ParamField path="debug" type="boolean">
+  Whether debug mode is enabled. Defaults to `false` if not specified.
+</ParamField>
+
+### timezone
+
+```typescript
+readonly timezone?: string
+```
+
+<ParamField path="timezone" type="string">
+  The application's timezone. Defaults to `"UTC"` if not specified.
+</ParamField>
+
+### emitter
+
+```typescript
+emitter: Emitter
+```
+
+<ParamField path="emitter" type="Emitter">
+  The application's event emitter instance from `@resolid/event`.
+  
+  Use this to:
+  - Emit custom application events
+  - Listen for application lifecycle events (e.g., `'app:ready'`)
+  - Implement event-driven communication between extensions
+</ParamField>
+
+### container
+
+```typescript
+container: Container
+```
+
+<ParamField path="container" type="Container">
+  The dependency injection container instance from `@resolid/di`.
+  
+  Use this to:
+  - Retrieve services by token using `container.get(token)`
+  - Dynamically register additional providers
+  - Access the DI container during extension initialization
+</ParamField>
+
+### rootPath
+
+```typescript
+rootPath: PathResolver
+```
+
+<ParamField path="rootPath" type="PathResolver">
+  Path resolver function for paths relative to the application root directory.
+  
+  Type signature:
+  ```typescript
+  type PathResolver = (...paths: string[]) => string
+  ```
+  
+  - Resolves paths from the current working directory (cwd)
+  - Automatically converts backslashes to forward slashes
+  - Returns absolute paths
+</ParamField>
+
+### runtimePath
+
+```typescript
+runtimePath: PathResolver
+```
+
+<ParamField path="runtimePath" type="PathResolver">
+  Path resolver function for paths relative to the application's runtime directory (`{root}/runtime`).
+  
+  Type signature:
+  ```typescript
+  type PathResolver = (...paths: string[]) => string
+  ```
+  
+  - Resolves paths from `{cwd}/runtime`
+  - Automatically converts backslashes to forward slashes
+  - Returns absolute paths
+</ParamField>
+
+## Usage in Extensions
+
+### Extension Creator
+
+Extension creator functions receive the AppContext as a parameter:
+
+```typescript
+import { type ExtensionCreator } from '@resolid/core';
+
+const createConfigExtension = (): ExtensionCreator => {
+  return (context) => {
+    // Access context properties
+    const configPath = context.rootPath('config', 'app.json');
+    
+    return {
+      name: 'config',
+      providers: [
+        {
+          token: CONFIG,
+          factory: () => {
+            const config = loadConfig(configPath);
+            
+            if (context.debug) {
+              console.log('Loaded config:', config);
+            }
+            
+            return config;
+          }
+        }
+      ]
+    };
+  };
+};
+```
+
+### Bootstrap Function
+
+Bootstrap functions receive the AppContext as their only parameter:
+
+```typescript
+import type { Extension } from '@resolid/core';
+
+const databaseExtension: Extension = {
+  name: 'database',
+  providers: [
+    {
+      token: DATABASE,
+      factory: () => new DatabaseClient()
+    }
+  ],
+  bootstrap: async (context) => {
+    // Get service from container
+    const db = context.container.get(DATABASE);
+    
+    // Use path resolvers
+    const migrationsDir = context.rootPath('database', 'migrations');
+    
+    // Connect and run migrations
+    await db.connect();
+    await db.runMigrations(migrationsDir);
+    
+    // Log in debug mode
+    if (context.debug) {
+      console.log(`[${context.name}] Database connected`);
+    }
+    
+    // Set up event listeners
+    context.emitter.on('app:shutdown', async () => {
+      await db.disconnect();
+    });
+  }
+};
+```
+
+## Complete Example
+
+```typescript
+import { createApp, type ExtensionCreator } from '@resolid/core';
+
+const LOGGER = Symbol('LOGGER');
+const CACHE = Symbol('CACHE');
+
+const createLoggerExtension = (): ExtensionCreator => {
+  return (context) => ({
+    name: 'logger',
+    providers: [
+      {
+        token: LOGGER,
+        factory: () => ({
+          log: (message: string) => {
+            const timestamp = new Date().toISOString();
+            console.log(`[${context.name}] ${timestamp}: ${message}`);
+          }
+        })
+      }
+    ],
+    bootstrap: async (context) => {
+      const logger = context.container.get(LOGGER);
+      const logDir = context.runtimePath('logs');
+      
+      logger.log(`Application starting`);
+      logger.log(`Log directory: ${logDir}`);
+      logger.log(`Timezone: ${context.timezone}`);
+      logger.log(`Debug mode: ${context.debug}`);
+      
+      // Listen for app ready event
+      context.emitter.on('app:ready', () => {
+        logger.log('Application ready!');
+      });
+      
+      // Listen for custom events
+      context.emitter.on('cache:clear', () => {
+        logger.log('Cache cleared');
+      });
+    }
+  });
+};
+
+const cacheExtension: Extension = {
+  name: 'cache',
+  providers: [
+    {
+      token: CACHE,
+      factory: () => {
+        const store = new Map();
+        return {
+          get: (key: string) => store.get(key),
+          set: (key: string, value: any) => store.set(key, value),
+          clear: () => store.clear()
+        };
+      }
+    }
+  ],
+  bootstrap: async (context) => {
+    const cache = context.container.get(CACHE);
+    
+    // Store app metadata in cache
+    cache.set('app:name', context.name);
+    cache.set('app:timezone', context.timezone);
+    cache.set('app:started', new Date().toISOString());
+    
+    // Listen for clear event
+    context.emitter.on('cache:clear', () => {
+      cache.clear();
+    });
+  }
+};
+
+const app = await createApp({
+  name: 'MyApp',
+  debug: true,
+  timezone: 'America/New_York',
+  extensions: [
+    createLoggerExtension(),
+    cacheExtension
+  ],
+  expose: {
+    logger: LOGGER,
+    cache: CACHE
+  }
+});
+
+await app.run();
+
+// Trigger custom event
+app.emitter.emit('cache:clear');
+
+// Access exposed services
+app.$.logger.log('Hello from exposed service!');
+```
+
+## See Also
+
+- [Extension](/api/core/extension) - Extension interface that uses AppContext
+- [App](/api/core/app) - The App class that creates the context
+- [createApp](/api/core/create-app) - Factory function for creating applications

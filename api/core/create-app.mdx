@@ -1,0 +1,163 @@
+---
+title: createApp
+description: Factory function to create and initialize a Resolid application instance
+---
+
+## Function Signature
+
+```typescript
+async function createApp<E extends ExposeSchema = Record<string, never>>(
+  options: AppOptions<E>
+): Promise<App<InferExpose<E>>>
+```
+
+Creates and initializes a new Resolid application instance with the specified configuration, extensions, and providers.
+
+## Type Parameters
+
+<ParamField path="E" type="ExposeSchema" default="Record<string, never>">
+  An object schema mapping property names to dependency injection tokens. The exposed schema determines which services are available on the `app.$` object.
+  
+  Type definition: `Record<string, Token>`
+</ParamField>
+
+## Parameters
+
+<ParamField path="options" type="AppOptions<E>" required>
+  Configuration options for the application.
+
+  <ParamField path="options.name" type="string" required>
+    The name of the application.
+  </ParamField>
+
+  <ParamField path="options.debug" type="boolean" default="false">
+    Enable debug mode for the application.
+  </ParamField>
+
+  <ParamField path="options.timezone" type="string" default="UTC">
+    The timezone for the application. Sets `process.env.timezone`.
+  </ParamField>
+
+  <ParamField path="options.extensions" type="(Extension | ExtensionCreator)[]">
+    Array of extensions or extension creator functions to register with the application.
+  </ParamField>
+
+  <ParamField path="options.providers" type="Provider[]">
+    Array of dependency injection providers to register with the application container.
+  </ParamField>
+
+  <ParamField path="options.expose" type="E">
+    Schema defining which services to expose on the `app.$` object. Keys are property names, values are DI tokens.
+  </ParamField>
+</ParamField>
+
+## Return Type
+
+<ResponseField name="Promise<App<InferExpose<E>>>" type="Promise">
+  Returns a Promise that resolves to an initialized App instance. The generic type `InferExpose<E>` infers the types of exposed services from the schema.
+
+  The `InferExpose` utility type transforms the expose schema:
+  ```typescript
+  type InferExpose<E extends ExposeSchema> = {
+    [K in keyof E]: E[K] extends Token<infer T> ? T : never;
+  };
+  ```
+</ResponseField>
+
+## Usage Examples
+
+### Basic Application
+
+```typescript
+import { createApp } from '@resolid/core';
+
+const app = await createApp({
+  name: 'MyApp',
+  debug: true,
+  timezone: 'America/New_York'
+});
+
+await app.run();
+```
+
+### With Extensions and Exposed Services
+
+```typescript
+import { createApp, type Token } from '@resolid/core';
+
+const LOGGER = Symbol('LOGGER') as Token<{ log: (msg: string) => void }>;
+const DATABASE = Symbol('DATABASE') as Token<{ query: (sql: string) => Promise<any> }>;
+
+const app = await createApp({
+  name: 'MyApp',
+  extensions: [
+    {
+      name: 'logging',
+      providers: [
+        {
+          token: LOGGER,
+          factory: () => ({ log: (msg) => console.log(msg) })
+        }
+      ]
+    }
+  ],
+  providers: [
+    {
+      token: DATABASE,
+      factory: () => ({ query: async (sql) => { /* ... */ } })
+    }
+  ],
+  expose: {
+    logger: LOGGER,
+    db: DATABASE
+  }
+});
+
+// Access exposed services with full type safety
+app.$.logger.log('Application started');
+const results = await app.$.db.query('SELECT * FROM users');
+
+await app.run();
+```
+
+### With Extension Creator Functions
+
+```typescript
+import { createApp, type ExtensionCreator } from '@resolid/core';
+
+const createMailExtension = (config: { from: string }): ExtensionCreator => {
+  return (context) => ({
+    name: 'mail-extension',
+    providers: [
+      {
+        token: MAIL_SERVICE,
+        factory: () => ({
+          send: (to: string, body: string) => {
+            console.log(`Sending mail from ${config.from} to ${to}`);
+          }
+        })
+      }
+    ],
+    bootstrap: async (ctx) => {
+      ctx.emitter.on('user:created', (user) => {
+        // Send welcome email
+      });
+    }
+  });
+};
+
+const app = await createApp({
+  name: 'MyApp',
+  extensions: [
+    createMailExtension({ from: 'noreply@example.com' })
+  ]
+});
+
+await app.run();
+```
+
+## See Also
+
+- [App](/api/core/app) - The App class returned by createApp
+- [Extension](/api/core/extension) - Extension interface and creator types
+- [AppContext](/api/core/app-context) - Context object passed to extensions

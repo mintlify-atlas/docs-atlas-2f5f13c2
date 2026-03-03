@@ -1,0 +1,168 @@
+---
+title: Introduction
+description: A modern full-stack framework for building fast, scalable, and maintainable web applications
+---
+
+# Welcome to Resolid Framework
+
+Resolid is a modern, TypeScript-first full-stack framework designed for building fast, scalable, and maintainable web applications. Built on top of React Router and Vite, Resolid provides a powerful foundation with dependency injection, event-driven architecture, and extensible plugins.
+
+## Why Resolid?
+
+Resolid brings structure and scalability to full-stack TypeScript development by combining best-in-class tools with a clean, extensible architecture.
+
+<CardGroup cols={2}>
+  <Card title="Type-safe DI" icon="shield-check" href="/modules/dependency-injection">
+    Built-in dependency injection with full TypeScript support, singleton and transient scopes, and circular dependency detection
+  </Card>
+  <Card title="Event-driven" icon="bolt" href="/modules/event-emitter">
+    Lightweight event system for building decoupled, reactive applications with async support
+  </Card>
+  <Card title="Extensible architecture" icon="puzzle-piece" href="/core/extensions">
+    Plugin system with providers, bootstrap hooks, and lifecycle management
+  </Card>
+  <Card title="React Router integration" icon="route" href="/development/react-router">
+    Seamless React Router v7 integration with Vite for modern full-stack apps
+  </Card>
+  <Card title="Multi-platform deployment" icon="cloud" href="/deployment/overview">
+    Deploy to Node.js, Vercel, or Netlify with platform-specific optimizations
+  </Card>
+  <Card title="Built-in modules" icon="box" href="/modules/overview">
+    Caching, logging, database integration, and more — batteries included
+  </Card>
+</CardGroup>
+
+## Architecture overview
+
+Resolid applications are built around a few core concepts:
+
+### Application container
+
+The `App` class serves as your application's container, managing services, extensions, and lifecycle:
+
+```typescript
+import { createApp } from "@resolid/core";
+
+const app = await createApp({
+  name: "my-app",
+  debug: true,
+  extensions: [
+    // Your extensions here
+  ]
+});
+
+await app.run();
+```
+
+### Dependency injection
+
+Services are registered as providers and resolved through the container:
+
+```typescript
+import { Container, inject } from "@resolid/di";
+
+class LogService {
+  log(message: string) {
+    console.log(`[LOG]: ${message}`);
+  }
+}
+
+class UserService {
+  constructor(private logger: LogService) {}
+  
+  createUser(name: string) {
+    this.logger.log(`Creating user: ${name}`);
+  }
+}
+
+container.add({
+  token: LogService,
+  factory: () => new LogService(),
+});
+
+container.add({
+  token: UserService,
+  factory: () => new UserService(inject(LogService)),
+});
+```
+
+### Extensions
+
+Extensions are reusable modules that add functionality to your application:
+
+```typescript
+import { type Extension } from "@resolid/core";
+
+const logExtension: Extension = {
+  name: "log",
+  providers: [
+    {
+      token: LogService,
+      factory: () => new LogService(),
+    }
+  ],
+  bootstrap: async (context) => {
+    context.emitter.on("app:ready", () => {
+      console.log("App is ready!");
+    });
+  }
+};
+```
+
+## What you'll learn
+
+<CardGroup cols={2}>
+  <Card title="Get started" icon="rocket" href="/quickstart">
+    Build your first Resolid app in minutes
+  </Card>
+  <Card title="Core concepts" icon="book" href="/core/application">
+    Understand applications, extensions, and DI
+  </Card>
+  <Card title="Modules" icon="cube" href="/modules/overview">
+    Explore built-in modules and create your own
+  </Card>
+  <Card title="API Reference" icon="code" href="/api/core/create-app">
+    Complete API documentation
+  </Card>
+</CardGroup>
+
+## TypeScript-first
+
+Resolid is written in TypeScript and designed with type safety in mind. All APIs are fully typed, providing excellent autocomplete and catching errors at compile time.
+
+```typescript
+import { createApp } from "@resolid/core";
+import type { LogService } from "./services";
+
+const app = await createApp({
+  name: "my-app",
+  expose: {
+    log: LogService  // Type token
+  }
+});
+
+// Fully typed access to exposed services
+app.$.log.info("Hello world");  // TypeScript knows this is LogService
+```
+
+## Next steps
+
+<Steps>
+  <Step title="Install Resolid">
+    Learn how to install Resolid and its packages
+    
+    [Go to installation](/installation)
+  </Step>
+  
+  <Step title="Build your first app">
+    Follow the quickstart guide to create your first application
+    
+    [Go to quickstart](/quickstart)
+  </Step>
+  
+  <Step title="Learn core concepts">
+    Understand the fundamental concepts behind Resolid
+    
+    [Go to core concepts](/core/application)
+  </Step>
+</Steps>

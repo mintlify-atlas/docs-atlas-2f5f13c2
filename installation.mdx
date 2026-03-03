@@ -1,0 +1,397 @@
+---
+title: Installation
+description: Install Resolid and its packages to start building your application
+---
+
+# Installation
+
+Get started with Resolid by installing the required packages for your use case.
+
+## System requirements
+
+Resolid requires the following to be installed:
+
+- **Node.js**: Version `22.13.0` or `24+`
+- **Package manager**: pnpm (recommended), npm, yarn, or bun
+
+<Note>
+Resolid is built with modern Node.js features. Make sure you're running a compatible version.
+</Note>
+
+## Core package
+
+The `@resolid/core` package provides the application container, extension system, and core APIs:
+
+<CodeGroup>
+```bash npm
+npm install @resolid/core
+```
+
+```bash pnpm
+pnpm add @resolid/core
+```
+
+```bash yarn
+yarn add @resolid/core
+```
+
+```bash bun
+bun add @resolid/core
+```
+</CodeGroup>
+
+The core package includes:
+- `createApp()` - Application factory function
+- `App` class - Application container with lifecycle management
+- Extension system
+- Re-exports from `@resolid/di` and `@resolid/event`
+
+## Available packages
+
+Resolid is split into focused packages. Install only what you need:
+
+### Dependency injection
+
+Type-safe dependency injection container with singleton/transient scopes:
+
+<CodeGroup>
+```bash npm
+npm install @resolid/di
+```
+
+```bash pnpm
+pnpm add @resolid/di
+```
+
+```bash yarn
+yarn add @resolid/di
+```
+
+```bash bun
+bun add @resolid/di
+```
+</CodeGroup>
+
+Features:
+- Fully typed container
+- Singleton and transient scopes
+- Lazy resolution
+- Optional dependencies
+- Circular dependency detection
+- Disposable resources
+
+<Info>
+The `@resolid/di` package is automatically included when you install `@resolid/core`.
+</Info>
+
+### Event emitter
+
+Lightweight, typed event system:
+
+<CodeGroup>
+```bash npm
+npm install @resolid/event
+```
+
+```bash pnpm
+pnpm add @resolid/event
+```
+
+```bash yarn
+yarn add @resolid/event
+```
+
+```bash bun
+bun add @resolid/event
+```
+</CodeGroup>
+
+Features:
+- Type-safe events
+- Synchronous and asynchronous emission
+- Once listeners
+- Zero dependencies
+
+<Info>
+The `@resolid/event` package is automatically included when you install `@resolid/core`.
+</Info>
+
+### Cache
+
+Type-safe async cache with pluggable storage backends:
+
+<CodeGroup>
+```bash npm
+npm install @resolid/cache
+```
+
+```bash pnpm
+pnpm add @resolid/cache
+```
+
+```bash yarn
+yarn add @resolid/cache
+```
+
+```bash bun
+bun add @resolid/cache
+```
+</CodeGroup>
+
+Features:
+- Get/set/delete/clear operations
+- Batch operations
+- Optional TTL
+- Custom store backends
+- In-memory and file-based stores included
+
+### Development tools
+
+Vite integration, React Router support, and HTTP server:
+
+<CodeGroup>
+```bash npm
+npm install @resolid/dev
+```
+
+```bash pnpm
+pnpm add @resolid/dev
+```
+
+```bash yarn
+yarn add @resolid/dev
+```
+
+```bash bun
+bun add @resolid/dev
+```
+</CodeGroup>
+
+Features:
+- `defineDevConfig()` for Vite and React Router configuration
+- HTTP server with Hono
+- Request utilities (client IP, request ID, origin)
+- Platform adapters (Node.js, Vercel, Netlify)
+- File-based routing with flex routes
+
+<Warning>
+The `@resolid/dev` package has peer dependencies on React Router and Vite. Install these separately.
+</Warning>
+
+### Logging
+
+Structured logging with LogTape integration:
+
+<CodeGroup>
+```bash npm
+npm install @resolid/app-log
+```
+
+```bash pnpm
+pnpm add @resolid/app-log
+```
+
+```bash yarn
+yarn add @resolid/app-log
+```
+
+```bash bun
+bun add @resolid/app-log
+```
+</CodeGroup>
+
+Features:
+- Integration with LogTape
+- Category-based logging
+- Multiple log levels (debug, info, warn, error, fatal)
+- Configurable sinks and filters
+- Structured logging support
+
+### Database
+
+Database integration with Drizzle ORM:
+
+<CodeGroup>
+```bash npm
+npm install @resolid/app-db
+```
+
+```bash pnpm
+pnpm add @resolid/app-db
+```
+
+```bash yarn
+yarn add @resolid/app-db
+```
+
+```bash bun
+bun add @resolid/app-db
+```
+</CodeGroup>
+
+MySQL provider:
+
+<CodeGroup>
+```bash npm
+npm install @resolid/app-db-mysql
+```
+
+```bash pnpm
+pnpm add @resolid/app-db-mysql
+```
+
+```bash yarn
+yarn add @resolid/app-db-mysql
+```
+
+```bash bun
+bun add @resolid/app-db-mysql
+```
+</CodeGroup>
+
+Features:
+- Drizzle ORM integration
+- Database service providers
+- Repository pattern support
+- MySQL support (more databases coming soon)
+
+### File-based cache
+
+File system cache backend:
+
+<CodeGroup>
+```bash npm
+npm install @resolid/cache-file
+```
+
+```bash pnpm
+pnpm add @resolid/cache-file
+```
+
+```bash yarn
+yarn add @resolid/cache-file
+```
+
+```bash bun
+bun add @resolid/cache-file
+```
+</CodeGroup>
+
+### File-based logging
+
+File system logging target:
+
+<CodeGroup>
+```bash npm
+npm install @resolid/app-log-file
+```
+
+```bash pnpm
+pnpm add @resolid/app-log-file
+```
+
+```bash yarn
+yarn add @resolid/app-log-file
+```
+
+```bash bun
+bun add @resolid/app-log-file
+```
+</CodeGroup>
+
+## Installation by use case
+
+Choose the right packages for your project:
+
+<Tabs>
+  <Tab title="Basic app">
+    For a basic Resolid application with DI and events:
+    
+    ```bash
+    pnpm add @resolid/core
+    ```
+    
+    This includes `@resolid/di` and `@resolid/event`.
+  </Tab>
+  
+  <Tab title="Full-stack app">
+    For a full-stack application with React Router and Vite:
+    
+    ```bash
+    pnpm add @resolid/core @resolid/dev react-router @react-router/node @react-router/dev vite
+    ```
+  </Tab>
+  
+  <Tab title="With caching">
+    Add caching to your application:
+    
+    ```bash
+    pnpm add @resolid/core @resolid/cache
+    ```
+    
+    For file-based cache:
+    ```bash
+    pnpm add @resolid/cache-file
+    ```
+  </Tab>
+  
+  <Tab title="With database">
+    Add database support:
+    
+    ```bash
+    pnpm add @resolid/core @resolid/app-db @resolid/app-db-mysql drizzle-orm mysql2
+    ```
+  </Tab>
+  
+  <Tab title="With logging">
+    Add structured logging:
+    
+    ```bash
+    pnpm add @resolid/core @resolid/app-log
+    ```
+    
+    For file-based logging:
+    ```bash
+    pnpm add @resolid/app-log-file
+    ```
+  </Tab>
+  
+  <Tab title="Everything">
+    Install all packages:
+    
+    ```bash
+    pnpm add @resolid/core @resolid/dev @resolid/cache @resolid/app-log @resolid/app-db @resolid/app-db-mysql
+    pnpm add react-router @react-router/node @react-router/dev vite drizzle-orm mysql2
+    ```
+  </Tab>
+</Tabs>
+
+## Verify installation
+
+After installation, verify that Resolid is working:
+
+```typescript
+import { createApp } from "@resolid/core";
+
+const app = await createApp({
+  name: "test-app"
+});
+
+console.log(app.name); // "test-app"
+
+await app.run();
+await app.dispose();
+```
+
+If this runs without errors, you're ready to go!
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Quickstart" icon="rocket" href="/quickstart">
+    Build your first Resolid application
+  </Card>
+  <Card title="Core concepts" icon="book" href="/core/application">
+    Learn about the application architecture
+  </Card>
+</CardGroup>

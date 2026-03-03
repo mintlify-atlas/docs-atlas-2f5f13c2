@@ -1,0 +1,154 @@
+---
+title: 'Modules Overview'
+description: 'Overview of all available Resolid Framework modules and when to use them'
+---
+
+Resolid Framework provides a collection of standalone, composable modules that help you build robust applications. Each module is designed to solve a specific problem and can be used independently or together.
+
+## Available Modules
+
+### Core Modules
+
+These modules provide fundamental building blocks for your application:
+
+#### Dependency Injection (`@resolid/di`)
+
+A lightweight, fully-typed dependency injection container for TypeScript.
+
+**When to use:**
+- Managing application dependencies and their lifecycles
+- Implementing inversion of control patterns
+- Creating testable, modular applications
+- Handling singleton and transient service instances
+
+**Key features:**
+- Singleton and transient scopes
+- Lazy resolution
+- Optional dependencies
+- Circular dependency detection
+- Disposable resource management
+
+[Learn more →](/modules/dependency-injection)
+
+#### Event Emitter (`@resolid/event`)
+
+A lightweight, fully-typed event system for modern TypeScript projects.
+
+**When to use:**
+- Implementing event-driven architectures
+- Decoupling components through events
+- Building pub/sub patterns
+- Creating reactive workflows
+
+**Key features:**
+- Simple `on`, `off`, `once`, and `emit` APIs
+- Async emission support
+- Fully typed event handlers
+- Zero dependencies
+
+[Learn more →](/modules/event-emitter)
+
+#### Cache (`@resolid/cache`)
+
+A type-safe async cache system with pluggable storage backends.
+
+**When to use:**
+- Caching API responses or computed values
+- Implementing performance optimizations
+- Storing temporary data with TTL
+- Creating custom caching strategies
+
+**Key features:**
+- Single and batch operations
+- Optional TTL support
+- Pluggable store backends
+- Memory and null cache implementations
+
+[Learn more →](/modules/cache)
+
+### Application Modules
+
+These modules integrate with external libraries to provide application-level functionality:
+
+#### Logging (`@resolid/app-log`)
+
+Integration with LogTape for structured logging in Resolid applications.
+
+**When to use:**
+- Adding structured logging to your application
+- Configuring multiple log sinks and categories
+- Implementing debug and production logging strategies
+- Integrating with external logging services
+
+**Key features:**
+- Built on LogTape
+- Multiple log levels (debug, info, warn, error, fatal)
+- Category-based logging
+- Custom sinks and filters
+
+[Learn more →](/modules/logging)
+
+#### Database (`@resolid/app-db`)
+
+Integration with Drizzle ORM for database management in Resolid applications.
+
+**When to use:**
+- Working with SQL databases
+- Implementing repository patterns
+- Managing multiple database connections
+- Building type-safe database queries
+
+**Key features:**
+- Built on Drizzle ORM
+- Repository base class
+- Multi-connection support
+- Type-safe queries
+
+[Learn more →](/modules/database)
+
+## Installation
+
+Each module can be installed independently:
+
+```bash
+# Core modules
+pnpm add @resolid/di
+pnpm add @resolid/event
+pnpm add @resolid/cache
+
+# Application modules
+pnpm add @resolid/app-log
+pnpm add @resolid/app-db
+```
+
+## Module Design Philosophy
+
+Resolid modules follow these principles:
+
+1. **Standalone**: Each module can be used independently without requiring the full framework
+2. **Type-safe**: Full TypeScript support with no `any` types
+3. **Composable**: Modules work well together but don't require each other
+4. **Minimal**: Small footprint with few or zero dependencies
+5. **Flexible**: Pluggable architecture for customization
+
+## Next Steps
+
+Explore each module's documentation to learn more about their APIs and usage patterns:
+
+<CardGroup cols={2}>
+  <Card title="Dependency Injection" icon="syringe" href="/modules/dependency-injection">
+    Manage dependencies with a powerful DI container
+  </Card>
+  <Card title="Event Emitter" icon="bolt" href="/modules/event-emitter">
+    Build event-driven applications with ease
+  </Card>
+  <Card title="Cache" icon="database" href="/modules/cache">
+    Implement caching strategies with flexible storage
+  </Card>
+  <Card title="Logging" icon="file-lines" href="/modules/logging">
+    Add structured logging to your application
+  </Card>
+  <Card title="Database" icon="table" href="/modules/database">
+    Work with databases using Drizzle ORM
+  </Card>
+</CardGroup>

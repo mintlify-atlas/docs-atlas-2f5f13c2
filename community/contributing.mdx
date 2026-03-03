@@ -1,0 +1,163 @@
+---
+title: Contributing Guide
+description: Learn how to contribute to the Resolid Framework project
+---
+
+Thank you for considering contributing to **Resolid Framework**!
+Before you submit your contribution, please take a moment to read the following guidelines.
+
+## How to Contribute
+
+Follow these steps to contribute to **Resolid Framework**:
+
+<Steps>
+  <Step title="Fork the repository">
+    Create your own copy of the project to work on.
+  </Step>
+
+  <Step title="Clone your fork locally">
+    ```shell
+    git clone https://github.com/<your-username>/resolid-framework.git
+    cd resolid-framework
+    ```
+  </Step>
+
+  <Step title="Install dependencies">
+    ```shell
+    pnpm install
+    ```
+  </Step>
+
+  <Step title="Create a new branch">
+    Use a descriptive branch name related to your change:
+
+    ```shell
+    git checkout -b feat/awesome-feature
+    ```
+  </Step>
+
+  <Step title="Make your changes">
+    - Follow the **Clean Code Rules**.
+    - Write **tests** for new features or bug fixes.
+  </Step>
+
+  <Step title="Run tests">
+    ```shell
+    pnpm run test
+    ```
+  </Step>
+
+  <Step title="Commit your changes">
+    Use the **Conventional Commit** format.
+  </Step>
+
+  <Step title="Push to your branch">
+    ```shell
+    git push origin feat/awesome-feature
+    ```
+  </Step>
+
+  <Step title="Open a Pull Request (PR)">
+    - Target the main branch of the original repository.
+    - Provide a clear description of your changes, why they are needed, and reference any relevant issues.
+  </Step>
+
+  <Step title="Address review comments">
+    - Make changes if requested.
+    - Update tests or documentation as needed.
+  </Step>
+</Steps>
+
+### Tips
+
+- Keep PRs small and focused — one logical change per PR.
+- Ensure your code passes linting and type checks before submitting.
+- Use meaningful commit messages to make reviewing easier.
+
+## Clean Code Rules
+
+The **Resolid Framework** follows the principles of Clean Code to ensure that code remains simple, readable, and maintainable.
+Following these guidelines makes your code easier to read, test, and maintain.
+
+<CardGroup cols={2}>
+  <Card title="Intention-revealing names" icon="signature">
+    Use names that make the purpose obvious
+  </Card>
+  <Card title="Single responsibility" icon="bullseye">
+    Each function should do one thing and do it well
+  </Card>
+  <Card title="Side effects at boundary" icon="border-outer">
+    Keep I/O, state, and network operations isolated
+  </Card>
+  <Card title="Guard clauses first" icon="shield-halved">
+    Prefer guard clauses to reduce nesting
+  </Card>
+  <Card title="Symbolize constants" icon="hashtag">
+    Avoid hardcoded literals
+  </Card>
+  <Card title="Input → Process → Output" icon="arrow-right">
+    Structure logic in a clear flow
+  </Card>
+  <Card title="Clear error messages" icon="triangle-exclamation">
+    Report failures with specific errors
+  </Card>
+  <Card title="Tests as examples" icon="vial">
+    Let tests act as usage examples, covering both normal and edge cases
+  </Card>
+</CardGroup>
+
+## Commit Convention Rules
+
+Follow the Conventional Commits specification via [@commitlint/config-conventional](https://www.conventionalcommits.org/). The commit message should be structured as follows:
+
+```
+<type>[optional scope]: <description>
+
+[optional body]
+
+[optional footer(s)]
+```
+
+### Rules
+
+- **Allowed types**: `build`, `chore`, `ci`, `docs`, `feat`, `fix`, `perf`, `refactor`, `revert`, `style`, `test`
+- **Type** must be lowercase and non-empty
+- **Subject** must:
+  - not be empty
+  - not end with period (`.`)
+  - Avoid sentence case, start case, PascalCase, or UPPER_CASE
+- **Header** max length: 100 characters
+- **Body** and **footer**:
+  - Must start with a blank line after the header
+  - Maximum line length: 100 characters
+- **Breaking changes**:
+  - Indicate using `BREAKING CHANGE:` in the footer
+  - Precede it with a blank line
+
+### Commit Examples
+
+<Tabs>
+  <Tab title="Valid commits">
+    ```
+    feat(di): add LazyResolve support for async factory
+    fix(core): handle null input gracefully
+    perf(di): optimize dependency resolution
+    chore: update dependencies
+    ```
+  </Tab>
+  <Tab title="Breaking change">
+    ```
+    refactor(core): remove old container API
+
+    BREAKING CHANGE: the previous `createContainer` method is replaced with a new interface
+    ```
+  </Tab>
+  <Tab title="Invalid commits">
+    ```
+    Feat: Add new feature # Type must be lowercase
+    fix(core). # Subject should not end with a period
+    docs: # Subject must not be empty
+    perf(core): Improve speed # Avoid sentence-case / start-case
+    ```
+  </Tab>
+</Tabs>

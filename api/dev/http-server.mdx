@@ -1,0 +1,364 @@
+---
+title: 'HTTP Server'
+description: 'Create and configure HTTP servers with Hono'
+---
+
+## Overview
+
+The Resolid Framework provides HTTP server utilities built on Hono, a fast and lightweight web framework. The server integrates with React Router for SSR and provides platform-specific implementations.
+
+## Function: createHonoNodeServer()
+
+Creates a Hono-based HTTP server for Node.js.
+
+```typescript
+async function createHonoNodeServer(
+  options?: HonoNodeServerOptions
+): Promise<HonoNodeServer>
+```
+
+<ParamField path="options" type="HonoNodeServerOptions">
+  Server configuration options
+</ParamField>
+
+<ParamField path="options.port" type="number" default="3000">
+  Port number to listen on
+</ParamField>
+
+<ParamField path="options.defaultLogger" type="boolean" default="true in development">
+  Enable default request logging
+</ParamField>
+
+<ParamField path="options.configure" type="(app: Hono) => Promise<void> | void">
+  Function to configure the Hono app before routes are added
+</ParamField>
+
+<ParamField path="options.honoOptions" type="HonoOptions">
+  Hono constructor options
+</ParamField>
+
+<ParamField path="options.getLoadContext" type="(c: Context) => RouterContextProvider | Promise<RouterContextProvider>">
+  Function to create the React Router load context
+</ParamField>
+
+<ParamField path="options.onShutdown" type="() => Promise<void> | void">
+  Callback to execute on server shutdown
+</ParamField>
+
+<ParamField path="options.listeningListener" type="(info: AddressInfo) => void">
+  Callback when server starts listening
+</ParamField>
+
+<ResponseField name="return" type="Promise<HonoNodeServer>">
+  The configured Hono server instance
+</ResponseField>
+
+## Basic Usage
+
+```typescript
+import { createHonoNodeServer } from '@resolid/dev/http';
+
+const server = await createHonoNodeServer({
+  port: 3000,
+  configure: async (app) => {
+    // Add custom middleware or routes
+    app.use('*', async (c, next) => {
+      console.log(`Request: ${c.req.method} ${c.req.url}`);
+      await next();
+    });
+  }
+});
+```
+
+## Server Configuration
+
+### Custom Port
+
+```typescript
+const server = await createHonoNodeServer({
+  port: parseInt(process.env.PORT || '3000')
+});
+```
+
+### Disable Default Logger
+
+```typescript
+const server = await createHonoNodeServer({
+  defaultLogger: false
+});
+```
+
+### Custom Middleware
+
+```typescript
+import { cors } from 'hono/cors';
+import { compress } from 'hono/compress';
+
+const server = await createHonoNodeServer({
+  configure: async (app) => {
+    // CORS
+    app.use('*', cors({
+      origin: 'https://example.com',
+      credentials: true
+    }));
+    
+    // Compression
+    app.use('*', compress());
+    
+    // Custom routes
+    app.get('/api/health', (c) => c.json({ status: 'ok' }));
+  }
+});
+```
+
+### Load Context
+
+Provide context data to React Router loaders and actions:
+
+```typescript
+import { DatabaseService } from '@resolid/app-db';
+import { LogService } from '@resolid/app-log';
+
+const server = await createHonoNodeServer({
+  getLoadContext: (c) => {
+    const context = new RouterContextProvider();
+    
+    // Inject services into context
+    context.set('db', app.get(DatabaseService));
+    context.set('logger', app.get(LogService));
+    context.set('user', c.get('user'));
+    
+    return context;
+  }
+});
+```
+
+### Shutdown Handler
+
+```typescript
+const server = await createHonoNodeServer({
+  onShutdown: async () => {
+    console.log('Server shutting down...');
+    await cleanupResources();
+  }
+});
+```
+
+## Built-in Middleware
+
+The framework provides several built-in middleware:
+
+### Request ID
+
+```typescript
+import { requestId } from '@resolid/dev/http';
+
+const server = await createHonoNodeServer({
+  configure: async (app) => {
+    app.use('*', requestId());
+  }
+});
+```
+
+### Client IP
+
+```typescript
+import { clientIp, nodeClientIpGetter } from '@resolid/dev/http';
+
+const server = await createHonoNodeServer({
+  configure: async (app) => {
+    app.use('*', clientIp(nodeClientIpGetter()));
+  }
+});
+```
+
+### Request Origin
+
+```typescript
+import { requestOrigin, nodeRequestOriginGetter } from '@resolid/dev/http';
+
+const server = await createHonoNodeServer({
+  configure: async (app) => {
+    app.use('*', requestOrigin(nodeRequestOriginGetter()));
+  }
+});
+```
+
+## Cache Control
+
+The server automatically configures cache control for static assets:
+
+```typescript
+import { cacheControl } from '@resolid/dev/http';
+
+const server = await createHonoNodeServer({
+  configure: async (app) => {
+    // Cache static assets for 1 year (immutable)
+    app.use('/assets/*', cacheControl(60 * 60 * 24 * 365, true));
+    
+    // Cache other files for 1 hour
+    app.use('*', cacheControl(60 * 60));
+  }
+});
+```
+
+## Function: cacheControl()
+
+Creates a cache control middleware.
+
+```typescript
+function cacheControl(seconds: number, immutable?: boolean): MiddlewareHandler
+```
+
+<ParamField path="seconds" type="number" required>
+  Cache duration in seconds
+</ParamField>
+
+<ParamField path="immutable" type="boolean" default="false">
+  Whether the resource is immutable
+</ParamField>
+
+<ResponseField name="return" type="MiddlewareHandler">
+  Hono middleware that sets Cache-Control headers
+</ResponseField>
+
+## Platform-Specific Helpers
+
+### Node.js Client IP Getter
+
+```typescript
+function nodeClientIpGetter(options?: GetClientIpOptions): ClientIpGetter
+```
+
+<ParamField path="options" type="GetClientIpOptions">
+  Options for extracting client IP
+</ParamField>
+
+**Example:**
+
+```typescript
+import { clientIp, nodeClientIpGetter } from '@resolid/dev/http';
+
+app.use('*', clientIp(nodeClientIpGetter({
+  headers: ['x-forwarded-for', 'x-real-ip']
+})));
+```
+
+### Node.js Request Origin Getter
+
+```typescript
+function nodeRequestOriginGetter(proxy?: boolean): RequestOriginGetter
+```
+
+<ParamField path="proxy" type="boolean" default="false">
+  Whether the server is behind a proxy
+</ParamField>
+
+**Example:**
+
+```typescript
+import { requestOrigin, nodeRequestOriginGetter } from '@resolid/dev/http';
+
+app.use('*', requestOrigin(nodeRequestOriginGetter(true)));
+```
+
+## Type Definitions
+
+### HonoNodeServerOptions
+
+```typescript
+type HonoNodeServerOptions = HonoServerOptions<NodeEnv> & {
+  port?: number;
+  defaultLogger?: boolean;
+  listeningListener?: (info: AddressInfo) => void;
+}
+```
+
+### HonoServerOptions
+
+```typescript
+interface HonoServerOptions<E extends Env = BlankEnv> {
+  configure?: (app: Hono<E>) => Promise<void> | void;
+  honoOptions?: HonoOptions<E>;
+  getLoadContext?: (
+    c: Context<E>,
+    options: { build: ServerBuild; mode?: string }
+  ) => Promise<RouterContextProvider> | RouterContextProvider;
+  onShutdown?: () => Promise<void> | void;
+}
+```
+
+### NodeEnv
+
+```typescript
+type NodeEnv = {
+  Bindings: HttpBindings | Http2Bindings;
+}
+```
+
+## Complete Example
+
+```typescript
+import { createApp } from '@resolid/core';
+import { createHonoNodeServer, requestId, clientIp, nodeClientIpGetter } from '@resolid/dev/http';
+import { cors } from 'hono/cors';
+import { compress } from 'hono/compress';
+import { DatabaseService } from '@resolid/app-db';
+import { LogService } from '@resolid/app-log';
+
+// Create the Resolid app
+const app = createApp({
+  // ... providers and extensions
+});
+
+await app.bootstrap();
+
+// Create the HTTP server
+const server = await createHonoNodeServer({
+  port: parseInt(process.env.PORT || '3000'),
+  defaultLogger: process.env.NODE_ENV !== 'production',
+  
+  configure: async (hono) => {
+    // Add middleware
+    hono.use('*', requestId());
+    hono.use('*', clientIp(nodeClientIpGetter()));
+    hono.use('*', cors({ origin: '*' }));
+    hono.use('*', compress());
+    
+    // Add custom routes
+    hono.get('/api/health', (c) => c.json({ status: 'ok' }));
+    
+    hono.get('/api/status', (c) => {
+      const db = app.get(DatabaseService);
+      return c.json({
+        database: db ? 'connected' : 'disconnected',
+        uptime: process.uptime()
+      });
+    });
+  },
+  
+  getLoadContext: (c) => {
+    const context = new RouterContextProvider();
+    context.set('app', app);
+    context.set('db', app.get(DatabaseService));
+    context.set('logger', app.get(LogService));
+    return context;
+  },
+  
+  onShutdown: async () => {
+    console.log('Shutting down server...');
+    await app.dispose();
+  },
+  
+  listeningListener: (info) => {
+    console.log(`Server listening on http://localhost:${info.port}`);
+  }
+});
+```
+
+## Source Code
+
+Locations:
+- `packages/dev/src/http/index.ts`
+- `packages/dev/src/http/platforms/node.ts`
+- `packages/dev/src/http/utils/server.ts`

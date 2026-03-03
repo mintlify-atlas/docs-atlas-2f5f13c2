@@ -1,0 +1,205 @@
+---
+title: Application
+description: Learn about the App class, createApp function, and application lifecycle in Resolid Framework
+---
+
+The Application is the core orchestrator of your Resolid Framework project. It manages the dependency injection container, event emitter, extensions, and the application lifecycle.
+
+## Creating an Application
+
+Use the `createApp` function to create and initialize a new application instance:
+
+```typescript
+import { createApp } from '@resolid/core';
+
+const app = await createApp({
+  name: 'MyApp',
+  debug: false,
+  timezone: 'UTC',
+});
+
+await app.run();
+```
+
+## App Class
+
+The `App` class is the main application container. It's created internally by `createApp` and provides:
+
+### Properties
+
+- `name: string` - Application name
+- `debug: boolean` - Debug mode flag
+- `timezone: string` - Application timezone
+- `emitter: Emitter` - Event emitter instance for app-wide events
+- `$: E` - Exposed services object (based on the `expose` configuration)
+
+### Methods
+
+#### `get<T>(token: Token<T>): T`
+
+Resolve a service from the dependency injection container:
+
+```typescript
+const MY_SERVICE = Symbol('MY_SERVICE');
+
+const app = await createApp({
+  name: 'MyApp',
+  providers: [
+    { 
+      token: MY_SERVICE, 
+      factory: () => ({ hello: 'world' }) 
+    }
+  ],
+});
+
+const service = app.get(MY_SERVICE);
+console.log(service.hello); // 'world'
+```
+
+#### `async run(): Promise<void>`
+
+Start the application by executing all extension bootstrap functions and emitting the `app:ready` event:
+
+```typescript
+const app = await createApp({
+  name: 'MyApp',
+  extensions: [
+    {
+      name: 'logger',
+      bootstrap: async (context) => {
+        console.log('Logger initialized');
+      },
+    },
+  ],
+});
+
+// Bootstrap functions are executed here
+await app.run();
+```
+
+<Note>
+The `run()` method can be called multiple times safely - bootstrap functions will only execute once.
+</Note>
+
+#### `async dispose(): Promise<void>`
+
+Clean up the application by disposing all services and removing all event listeners:
+
+```typescript
+await app.dispose();
+```
+
+Services with a `dispose()` method will be automatically cleaned up.
+
+#### Path Resolvers
+
+**`rootPath(...paths: string[]): string`**
+
+Resolve paths relative to the application root directory:
+
+```typescript
+const configPath = app.rootPath('config', 'app.json');
+// Returns: /project-root/config/app.json
+```
+
+**`runtimePath(...paths: string[]): string`**
+
+Resolve paths relative to the `runtime` directory:
+
+```typescript
+const logPath = app.runtimePath('logs', 'app.log');
+// Returns: /project-root/runtime/logs/app.log
+```
+
+## AppContext Interface
+
+The `AppContext` is passed to extension bootstrap functions and provides access to core app functionality:
+
+```typescript
+export type AppContext = AppConfig & {
+  emitter: Emitter;
+  container: Container;
+  rootPath: PathResolver;
+  runtimePath: PathResolver;
+};
+```
+
+### Using AppContext in Extensions
+
+```typescript
+const myExtension = {
+  name: 'my-extension',
+  bootstrap: async (context: AppContext) => {
+    // Access configuration
+    console.log(context.name, context.debug);
+    
+    // Listen to events
+    context.emitter.on('app:ready', () => {
+      console.log('App is ready!');
+    });
+    
+    // Resolve dependencies
+    const service = context.container.get(MY_TOKEN);
+    
+    // Resolve paths
+    const dataPath = context.rootPath('data', 'users.json');
+  },
+};
+```
+
+## Exposing Services
+
+The `expose` option allows you to expose specific services on the app's `$` property with full type safety:
+
+```typescript
+const LOGGER = Symbol('LOGGER') as Token<Logger>;
+const DATABASE = Symbol('DATABASE') as Token<Database>;
+
+const app = await createApp({
+  name: 'MyApp',
+  providers: [
+    { token: LOGGER, factory: () => new Logger() },
+    { token: DATABASE, factory: () => new Database() },
+  ],
+  expose: {
+    logger: LOGGER,
+    db: DATABASE,
+  },
+});
+
+// Fully typed access to services
+app.$.logger.log('Hello');
+app.$.db.query('SELECT * FROM users');
+```
+
+## Lifecycle
+
+The application lifecycle follows this sequence:
+
+1. **Construction** - `new App(options)` is called internally
+   - Container is created
+   - Extensions are processed and providers are registered
+   - Bootstrap functions are collected
+
+2. **Initialization** - `await app.init()`
+   - Exposed services are resolved and assigned to `app.$`
+
+3. **Running** - `await app.run()`
+   - All extension bootstrap functions execute in parallel
+   - `app:ready` event is emitted
+
+4. **Disposal** - `await app.dispose()`
+   - All singletons with `dispose()` methods are cleaned up
+   - All event listeners are removed
+
+```typescript
+const app = await createApp({ name: 'MyApp' });
+// Steps 1 & 2 complete
+
+await app.run();
+// Step 3 complete - app is running
+
+// When shutting down:
+await app.dispose();
+// Step 4 complete - resources cleaned up
+```

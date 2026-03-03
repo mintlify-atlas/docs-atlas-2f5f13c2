@@ -1,0 +1,601 @@
+---
+title: 'Logging'
+description: 'Guide to @resolid/app-log - Integration with LogTape for structured logging'
+---
+
+The `@resolid/app-log` package provides structured logging capabilities for Resolid applications through integration with [LogTape](https://logtape.org). It offers multiple log levels, category-based organization, and custom sinks for flexible log routing.
+
+## Installation
+
+```bash
+pnpm add @resolid/app-log
+# or
+npm install @resolid/app-log
+# or
+yarn add @resolid/app-log
+# or
+bun add @resolid/app-log
+```
+
+## Basic Usage
+
+Integrate logging into your Resolid application:
+
+```typescript
+import { createApp } from "@resolid/core";
+import { createLogExtension, LogService } from "@resolid/app-log";
+
+const app = createApp({
+  name: "MyApp",
+  extensions: [
+    createLogExtension(),
+  ],
+  expose: {
+    logger: {
+      token: LogService,
+      async: true,
+    },
+  },
+});
+
+// Use the logger
+app.$.logger.info("Application started");
+app.$.logger.warn("This is a warning");
+app.$.logger.error("An error occurred", { error: new Error("Something failed") });
+```
+
+## Log Levels
+
+LogTape provides five log levels, from lowest to highest severity:
+
+### debug()
+
+Detailed information for diagnosing problems:
+
+```typescript
+logger.debug("Processing request", { requestId: "abc123", userId: 42 });
+logger.debug`Processing user ${userId} request`;
+```
+
+### info()
+
+General informational messages:
+
+```typescript
+logger.info("User logged in", { userId: 123, username: "alice" });
+logger.info`User ${username} logged in`;
+```
+
+### warn()
+
+Warning messages for potentially harmful situations:
+
+```typescript
+logger.warn("High memory usage detected", { usage: "85%" });
+logger.warn`High memory usage: ${usage}`;
+```
+
+### error()
+
+Error messages for error events:
+
+```typescript
+logger.error("Database connection failed", { error, database: "main" });
+logger.error`Failed to connect to ${database}`;
+```
+
+### fatal()
+
+Very severe error events that might cause application termination:
+
+```typescript
+logger.fatal("Unrecoverable error", { error, stack: error.stack });
+logger.fatal`Critical system failure: ${error.message}`;
+```
+
+**Source**: See methods at `packages/app-log/src/index.ts:56-69`
+
+## Category-Based Logging
+
+Organize logs by category for better filtering and routing:
+
+```typescript
+const logger = app.$.logger;
+
+// Default category (app name)
+logger.info("Application message");
+
+// Custom category
+const userLogger = logger.category("user");
+userLogger.info("User created", { id: 123 });
+
+const dbLogger = logger.category("database");
+dbLogger.debug("Query executed", { query: "SELECT * FROM users" });
+
+const apiLogger = logger.category("api");
+apiLogger.warn("Rate limit approaching", { remaining: 10 });
+```
+
+Categories can be hierarchical:
+
+```typescript
+// Hierarchical categories
+const authLogger = logger.category("auth");
+const loginLogger = logger.category("auth:login");
+const logoutLogger = logger.category("auth:logout");
+
+loginLogger.info("User logged in");
+logoutLogger.info("User logged out");
+```
+
+**Source**: See `category()` method at `packages/app-log/src/index.ts:71`
+
+## Configuration
+
+### Basic Configuration
+
+Configure logging with custom settings:
+
+```typescript
+import { createLogExtension, type LogConfig } from "@resolid/app-log";
+import type { Sink } from "@logtape/logtape";
+
+const logConfig: LogConfig = {
+  // Default category name (defaults to app name)
+  defaultCategory: "my-app",
+  
+  // Custom sinks
+  sinks: {
+    console: getConsoleSink(),
+    file: createFileSink("app.log"),
+  },
+  
+  // Logger configurations
+  loggers: [
+    { category: "api", sinks: ["console", "file"] },
+    { category: "database", sinks: ["file"] },
+  ],
+};
+
+const app = createApp({
+  name: "MyApp",
+  extensions: [createLogExtension([], logConfig)],
+});
+```
+
+### Configuration Types
+
+**LogConfig** (see `packages/app-log/src/index.ts:17`):
+```typescript
+type LogConfig = {
+  defaultTarget?: string;
+  defaultCategory?: string;
+  sinks?: Record<string, Sink>;
+  filters?: FilterConfig;
+  loggers?: LoggerEntity[];
+}
+```
+
+**LoggerEntity** (see `packages/app-log/src/index.ts:15`):
+```typescript
+type LoggerEntity = {
+  category: string;
+  sinks?: string[];
+  filters?: FilterConfig;
+  // ... other LogTape config options
+}
+```
+
+## Sinks
+
+Sinks control where logs are sent. LogTape provides several built-in sinks:
+
+### Console Sink
+
+Output logs to the console:
+
+```typescript
+import { getConsoleSink } from "@logtape/logtape";
+
+const logConfig: LogConfig = {
+  sinks: {
+    console: getConsoleSink(),
+  },
+  loggers: [
+    { category: "app", sinks: ["console"] },
+  ],
+};
+```
+
+### File Sink
+
+Write logs to a file:
+
+```typescript
+import { getFileSink } from "@logtape/logtape";
+
+const logConfig: LogConfig = {
+  sinks: {
+    file: getFileSink("app.log"),
+    errorFile: getFileSink("errors.log"),
+  },
+  loggers: [
+    { category: "app", sinks: ["file"] },
+    { category: "errors", sinks: ["errorFile"] },
+  ],
+};
+```
+
+### Custom Sink
+
+Create your own sink:
+
+```typescript
+import type { Sink } from "@logtape/logtape";
+
+const customSink: Sink = (record) => {
+  // Send to external service
+  fetch("https://logs.example.com", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      level: record.level,
+      message: record.message,
+      category: record.category,
+      timestamp: record.timestamp,
+      properties: record.properties,
+    }),
+  });
+};
+
+const logConfig: LogConfig = {
+  sinks: {
+    remote: customSink,
+  },
+};
+```
+
+## Advanced Features
+
+### Context-Aware Logging
+
+Add contextual information to logs:
+
+```typescript
+import { LogService } from "@resolid/app-log";
+
+class UserService {
+  constructor(private logger: LogService) {}
+
+  async createUser(data: UserData): Promise<User> {
+    const userId = generateId();
+    
+    // Add context to all logs in this scope
+    return this.logger.withContext({ userId }, () => {
+      this.logger.info("Creating user", { username: data.username });
+      // userId is automatically included in all logs
+      
+      const user = this.saveUser(data);
+      
+      this.logger.info("User created successfully");
+      return user;
+    });
+  }
+}
+```
+
+**Source**: See `withContext` at `packages/app-log/src/index.ts:79`
+
+### Filtering Logs
+
+Filter logs based on conditions:
+
+```typescript
+import { LogService } from "@resolid/app-log";
+
+class RequestHandler {
+  constructor(private logger: LogService) {}
+
+  async handleRequest(req: Request): Promise<Response> {
+    // Only log if request takes too long
+    return this.logger.withFilter(
+      (record) => record.properties.duration > 1000,
+      () => {
+        const start = Date.now();
+        const response = this.process(req);
+        const duration = Date.now() - start;
+        
+        this.logger.info("Request processed", { duration });
+        return response;
+      }
+    );
+  }
+}
+```
+
+**Source**: See `withFilter` at `packages/app-log/src/index.ts:80`
+
+### Custom Log Targets
+
+Integrate custom services as log targets:
+
+```typescript
+import { createLogExtension, createLogTarget } from "@resolid/app-log";
+import type { Sink } from "@logtape/logtape";
+
+// Create a custom service
+class MetricsService {
+  trackLog(level: string, message: string): void {
+    // Send to metrics system
+    console.log(`Metric: ${level} - ${message}`);
+  }
+}
+
+// Create a log target
+const metricsTarget = createLogTarget({
+  ref: MetricsService,
+  sinks: (metrics: MetricsService): Record<string, Sink> => ({
+    metrics: (record) => {
+      metrics.trackLog(record.level, record.message.join(" "));
+    },
+  }),
+});
+
+// Use in app
+const app = createApp({
+  name: "MyApp",
+  extensions: [
+    createLogExtension([metricsTarget]),
+  ],
+});
+```
+
+**Source**: See `createLogTarget()` at `packages/app-log/src/index.ts:94`
+
+## Common Patterns
+
+### Structured Logging
+
+Log with structured data for better analysis:
+
+```typescript
+class OrderService {
+  constructor(private logger: LogService) {}
+
+  async createOrder(order: Order): Promise<void> {
+    this.logger.info("Order created", {
+      orderId: order.id,
+      userId: order.userId,
+      total: order.total,
+      items: order.items.length,
+      timestamp: new Date().toISOString(),
+    });
+  }
+}
+```
+
+### Error Logging with Stack Traces
+
+Log errors with full context:
+
+```typescript
+try {
+  await processPayment(order);
+} catch (error) {
+  logger.error("Payment processing failed", {
+    orderId: order.id,
+    error: error instanceof Error ? error.message : String(error),
+    stack: error instanceof Error ? error.stack : undefined,
+    timestamp: new Date().toISOString(),
+  });
+  throw error;
+}
+```
+
+### Request Logging Middleware
+
+Log all HTTP requests:
+
+```typescript
+class RequestLogger {
+  constructor(private logger: LogService) {
+    this.requestLogger = logger.category("http");
+  }
+
+  logRequest(req: Request): void {
+    const start = Date.now();
+    
+    this.requestLogger.info("Request started", {
+      method: req.method,
+      url: req.url,
+      userAgent: req.headers.get("user-agent"),
+    });
+
+    req.addEventListener("finish", () => {
+      const duration = Date.now() - start;
+      
+      this.requestLogger.info("Request completed", {
+        method: req.method,
+        url: req.url,
+        duration,
+        status: req.status,
+      });
+    });
+  }
+}
+```
+
+### Environment-Based Configuration
+
+Configure logging differently for development and production:
+
+```typescript
+import { getConsoleSink, getFileSink } from "@logtape/logtape";
+
+const isDev = process.env.NODE_ENV === "development";
+
+const logConfig: LogConfig = {
+  sinks: isDev
+    ? {
+        console: getConsoleSink(),
+      }
+    : {
+        file: getFileSink("app.log"),
+        errorFile: getFileSink("error.log"),
+      },
+  loggers: isDev
+    ? [
+        { category: "app", sinks: ["console"], level: "debug" },
+      ]
+    : [
+        { category: "app", sinks: ["file"], level: "info" },
+        { category: "error", sinks: ["errorFile"], level: "error" },
+      ],
+};
+```
+
+## API Reference
+
+### LogService Class
+
+See source at `packages/app-log/src/index.ts:28`
+
+```typescript
+class LogService {
+  constructor(config?: LogConfig);
+  
+  // Configure the logging system
+  configure(): Promise<void>;
+  
+  // Log methods
+  debug(message: string, properties?: Record<string, unknown>): void;
+  info(message: string, properties?: Record<string, unknown>): void;
+  warn(message: string, properties?: Record<string, unknown>): void;
+  error(message: string, properties?: Record<string, unknown>): void;
+  fatal(message: string, properties?: Record<string, unknown>): void;
+  
+  // Get a category-specific logger
+  category(name: string): LogCategory;
+  getLogger(category?: string): Logger;
+  
+  // Context and filtering
+  withContext: typeof withContext;
+  withFilter: typeof withFilter;
+  
+  // Cleanup
+  dispose(): Promise<void>;
+}
+```
+
+### createLogExtension()
+
+Create a log extension for your Resolid app:
+
+```typescript
+function createLogExtension(
+  targets?: readonly LogTarget[],
+  config?: Omit<LogConfig, "sinks">
+): ExtensionCreator
+```
+
+**Source**: See `packages/app-log/src/index.ts:104`
+
+### createLogTarget()
+
+Create a custom log target:
+
+```typescript
+function createLogTarget<T>(target: {
+  ref: Token<T>;
+  sinks: (service: T) => Record<string, Sink>;
+}): LogTarget
+```
+
+**Source**: See `packages/app-log/src/index.ts:94`
+
+## Best Practices
+
+### 1. Use Appropriate Log Levels
+
+```typescript
+// Good: Appropriate levels
+logger.debug("Query parameter", { param: value }); // Development details
+logger.info("User logged in", { userId });         // Normal operation
+logger.warn("Cache miss", { key });                // Potential issue
+logger.error("API call failed", { error });        // Error condition
+logger.fatal("Database unreachable", { error });   // Critical failure
+
+// Avoid: Wrong levels
+logger.info("Critical system failure");  // Should be fatal
+logger.error("User logged in");          // Should be info
+```
+
+### 2. Include Contextual Information
+
+```typescript
+// Good: Rich context
+logger.error("Payment failed", {
+  orderId: order.id,
+  userId: user.id,
+  amount: order.total,
+  error: error.message,
+  timestamp: Date.now(),
+});
+
+// Avoid: Minimal context
+logger.error("Payment failed");
+```
+
+### 3. Use Categories for Organization
+
+```typescript
+// Good: Organized by category
+const dbLogger = logger.category("database");
+const apiLogger = logger.category("api");
+const authLogger = logger.category("auth");
+
+// Avoid: Everything in default category
+logger.info("Database query executed");
+logger.info("API request received");
+logger.info("User authenticated");
+```
+
+### 4. Don't Log Sensitive Information
+
+```typescript
+// Good: Redacted sensitive data
+logger.info("User authenticated", {
+  userId: user.id,
+  email: user.email.replace(/(.{2}).*(@.*)/, "$1***$2"),
+});
+
+// Avoid: Exposing sensitive data
+logger.info("User authenticated", {
+  password: user.password,
+  creditCard: user.creditCard,
+});
+```
+
+### 5. Clean Up on Shutdown
+
+```typescript
+const logger = container.get(LogService);
+
+try {
+  // Application logic
+} finally {
+  await logger.dispose();
+}
+```
+
+## LogTape Resources
+
+For more advanced LogTape features and configuration options, see the official documentation:
+
+- [LogTape Official Website](https://logtape.org)
+- [LogTape GitHub Repository](https://github.com/dahlia/logtape)
+
+## Related Resources
+
+- [Source code on GitHub](https://github.com/resolid/framework/tree/main/packages/app-log)
+- [npm package](https://www.npmjs.com/package/@resolid/app-log)

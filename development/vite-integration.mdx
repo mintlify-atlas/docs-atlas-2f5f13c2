@@ -1,0 +1,191 @@
+---
+title: Vite Integration
+description: Learn how Resolid integrates with Vite for modern development workflows
+---
+
+Resolid uses Vite as its build tool and development server, providing fast Hot Module Replacement (HMR) and optimized production builds.
+
+## Vite Plugin
+
+Resolid provides a custom Vite plugin that integrates with React Router and configures the development and build environments.
+
+### Setup
+
+The Resolid Vite plugin is configured through `defineDevConfig`:
+
+```typescript
+import { defineDevConfig } from "@resolid/dev";
+
+export const { vitePluginOptions, reactRouterConfig } = defineDevConfig({
+  appDirectory: "src",
+  platform: "node",
+  nodeVersion: 22,
+});
+```
+
+### Vite Plugin Options
+
+The `vitePluginOptions` returned from `defineDevConfig` configures the Resolid Vite plugin:
+
+```typescript
+interface VitePluginOptions {
+  platform: ServerPlatform;      // "node" | "vercel" | "netlify"
+  nodeVersion: NodeVersion;       // 22 | 24
+  entryFile: string;             // Default: "server.ts"
+  devExclude?: (string | RegExp)[]; // Patterns to exclude in dev
+}
+```
+
+#### Platform
+
+The `platform` option determines the deployment target:
+
+- `"node"` - Standard Node.js server
+- `"vercel"` - Vercel serverless platform
+- `"netlify"` - Netlify serverless platform
+
+```typescript
+import { env } from "node:process";
+
+export const { vitePluginOptions } = defineDevConfig({
+  platform: env.VERCEL == 1 ? "vercel" : env.NETLIFY ? "netlify" : "node",
+});
+```
+
+#### Node Version
+
+Specify the Node.js runtime version for server-side builds:
+
+```typescript
+export const { vitePluginOptions } = defineDevConfig({
+  nodeVersion: 24, // or 22
+});
+```
+
+This sets the `build.target` in Vite's SSR configuration to match your deployment environment.
+
+#### Entry File
+
+Customize the server entry file (defaults to `server.ts`):
+
+```typescript
+export const { vitePluginOptions } = defineDevConfig({
+  entryFile: "custom-server.ts",
+});
+```
+
+#### Development Exclusions
+
+Exclude specific URLs from being handled by the React Router middleware during development:
+
+```typescript
+export const { vitePluginOptions } = defineDevConfig({
+  devExclude: [
+    "/api/**",
+    /^\/static\//,
+  ],
+});
+```
+
+## Environment Variables
+
+The Vite plugin automatically defines environment variables accessible via `import.meta.env`:
+
+```typescript
+// Available in your application code
+import.meta.env.RESOLID_PLATFORM  // "node" | "vercel" | "netlify"
+import.meta.env.RESOLID_BASENAME  // Base path for routing
+import.meta.env.RESOLID_BUILD_DIR // Build output directory
+import.meta.env.RESOLID_ASSETS_DIR // Assets directory
+```
+
+## Development Server
+
+During development, the Resolid Vite plugin configures a middleware that:
+
+1. Serves static files from the `public` directory
+2. Excludes specified patterns from React Router handling
+3. Loads your server entry file using Vite's SSR module loader
+4. Forwards requests to your Hono application
+5. Provides full-reload HMR for SSR modules
+
+### Hot Module Replacement
+
+The plugin handles HMR for both client and server code:
+
+- **Client modules**: Standard Vite HMR with fast refresh
+- **Server modules**: Full page reload when SSR modules change
+
+```typescript
+handleHotUpdate({ server, modules }) {
+  const isSSR = modules.some((mod) => mod._ssrModule);
+  
+  if (isSSR) {
+    server.hot.send({ type: "full-reload" });
+    return [];
+  }
+}
+```
+
+## Production Builds
+
+For production builds, the plugin configures:
+
+- **Target**: Node.js version-specific builds (`node22` or `node24`)
+- **Entry**: Your server file as the SSR bundle entry point
+- **Format**: ESM module format for modern Node.js
+- **Optimization**: Removes unused React imports warnings
+
+```typescript
+build: {
+  target: `node${options.nodeVersion}`,
+  rollupOptions: {
+    input: reactRouterConfig.entryFile,
+    output: {
+      manualChunks: undefined,
+    },
+  },
+}
+```
+
+## Configuration Example
+
+A complete configuration example from the Resolid website:
+
+```typescript title="resolid.config.ts"
+import { defineDevConfig } from "@resolid/dev";
+import { env } from "node:process";
+
+export const { vitePluginOptions, reactRouterConfig } = defineDevConfig({
+  appDirectory: "src",
+  nodeVersion: 24,
+  platform: env.VERCEL == 1 ? "vercel" : env.NETLIFY ? "netlify" : "node",
+  reactRouterConfig: {
+    future: {
+      unstable_optimizeDeps: true,
+    },
+    serverBundles: ({ branch }) =>
+      branch.some((route) => route.id.startsWith("portals/admin")) 
+        ? "admin" 
+        : "site",
+  },
+});
+```
+
+## Using in vite.config.ts
+
+Import and use the plugin in your Vite configuration:
+
+```typescript title="vite.config.ts"
+import { resolidVite } from "@resolid/dev/vite";
+import { defineConfig } from "vite";
+import { vitePluginOptions } from "./resolid.config";
+
+export default defineConfig({
+  plugins: [
+    resolidVite(vitePluginOptions),
+  ],
+});
+```
+
+The `resolidVite` function returns an array of plugins including the Resolid dev plugin and React Router's Vite plugin.

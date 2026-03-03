@@ -1,0 +1,332 @@
+---
+title: Token<T>
+description: API reference for the Token type in Resolid Framework's dependency injection system
+---
+
+A `Token<T>` is a unique identifier used to register and retrieve dependencies from the container. It provides type-safe dependency resolution.
+
+## Import
+
+```typescript
+import type { Token } from '@resolid/framework/di';
+```
+
+## Type Definition
+
+```typescript
+type Token<T = unknown> =
+  | symbol
+  | (new (...args: any[]) => T)
+  | {
+      prototype: T;
+      name: string;
+    };
+```
+
+A token can be:
+
+1. A **symbol** - For primitive types, configuration values, or when you want explicit naming
+2. A **class constructor** - The most common pattern, using the class itself as the token
+3. An **object with prototype and name** - For advanced use cases
+
+## Using Class Constructors as Tokens
+
+The most common and recommended pattern is to use class constructors as tokens:
+
+```typescript
+import { Container, inject } from '@resolid/framework/di';
+
+class LogService {
+  log(message: string) {
+    console.log(message);
+  }
+}
+
+class UserService {
+  constructor(private logger: LogService) {}
+
+  createUser(name: string) {
+    this.logger.log(`Creating user: ${name}`);
+  }
+}
+
+const container = new Container();
+
+// Use the class as the token
+container.add({
+  token: LogService,
+  factory: () => new LogService(),
+});
+
+container.add({
+  token: UserService,
+  factory: () => new UserService(inject(LogService)),
+});
+
+// Retrieve using the class token
+const userService = container.get(UserService);
+userService.createUser('Alice');
+```
+
+### Benefits of Class Tokens
+
+- **Type safety**: TypeScript automatically infers the correct type
+- **No extra symbols**: The class itself serves as both the type and the identifier
+- **Refactoring friendly**: Renaming the class updates the token automatically
+- **IDE support**: Better autocomplete and navigation
+
+## Using Symbols as Tokens
+
+Use symbols for non-class dependencies like configuration values, primitives, or when you need explicit control:
+
+```typescript
+// Configuration values
+const API_URL = Symbol('API_URL');
+const API_KEY = Symbol('API_KEY');
+const MAX_RETRIES = Symbol('MAX_RETRIES');
+
+container.add({
+  token: API_URL,
+  factory: () => 'https://api.example.com',
+});
+
+container.add({
+  token: API_KEY,
+  factory: () => process.env.API_KEY || 'default-key',
+});
+
+container.add({
+  token: MAX_RETRIES,
+  factory: () => 3,
+});
+
+// Use in another service
+class ApiService {
+  constructor(
+    private url: string,
+    private apiKey: string,
+    private maxRetries: number
+  ) {}
+}
+
+container.add({
+  token: ApiService,
+  factory: () => new ApiService(
+    inject(API_URL),
+    inject(API_KEY),
+    inject(MAX_RETRIES)
+  ),
+});
+```
+
+### Symbol Token Best Practices
+
+1. **Use descriptive names**: Make the symbol description clear and meaningful
+2. **Export from a central location**: Keep token definitions organized
+3. **Add type annotations**: Specify the type when using `inject()`
+
+```typescript
+// tokens.ts
+export const CONFIG_TOKEN = Symbol('APP_CONFIG');
+
+export interface AppConfig {
+  apiUrl: string;
+  timeout: number;
+}
+
+// usage.ts
+import { CONFIG_TOKEN, type AppConfig } from './tokens';
+
+container.add({
+  token: CONFIG_TOKEN,
+  factory: (): AppConfig => ({
+    apiUrl: 'https://api.example.com',
+    timeout: 5000,
+  }),
+});
+
+class HttpClient {
+  constructor() {
+    const config = inject<AppConfig>(CONFIG_TOKEN);
+    // config is typed as AppConfig
+  }
+}
+```
+
+## Type Safety
+
+Tokens are generic and preserve type information:
+
+```typescript
+class LogService {
+  log(message: string) {
+    console.log(message);
+  }
+}
+
+const LOG_TOKEN = Symbol('Logger');
+
+// ✅ Type-safe: factory returns LogService
+container.add({
+  token: LOG_TOKEN,
+  factory: (): LogService => new LogService(),
+});
+
+// ✅ Type-safe retrieval
+const logger = inject<LogService>(LOG_TOKEN);
+logger.log('Hello'); // TypeScript knows logger has .log() method
+
+// With class tokens, type is inferred automatically
+container.add({
+  token: LogService,
+  factory: () => new LogService(),
+});
+
+const logger2 = inject(LogService); // Type is automatically LogService
+logger2.log('World');
+```
+
+## Choosing Between Class and Symbol Tokens
+
+### Use Class Tokens When:
+
+- Registering services and business logic classes
+- You want automatic type inference
+- The dependency is represented by a class
+- You prefer less boilerplate
+
+```typescript
+class EmailService {}
+class PaymentService {}
+class OrderService {}
+
+container.add({
+  token: EmailService,
+  factory: () => new EmailService(),
+});
+```
+
+### Use Symbol Tokens When:
+
+- Registering primitive values (strings, numbers, booleans)
+- Registering configuration objects
+- You need multiple providers of the same type
+- You want to decouple the token from the implementation
+
+```typescript
+const PRIMARY_DB = Symbol('PRIMARY_DB');
+const CACHE_DB = Symbol('CACHE_DB');
+
+// Both are DatabaseService instances, but different tokens
+container.add({
+  token: PRIMARY_DB,
+  factory: () => new DatabaseService('primary'),
+});
+
+container.add({
+  token: CACHE_DB,
+  factory: () => new DatabaseService('cache'),
+});
+```
+
+## Interface Tokens
+
+While TypeScript interfaces don't exist at runtime, you can use symbols with type annotations to achieve interface-based injection:
+
+```typescript
+// Define interface
+interface Logger {
+  log(message: string): void;
+}
+
+// Create token
+const LOGGER = Symbol('Logger');
+
+// Provide different implementations
+class ConsoleLogger implements Logger {
+  log(message: string) {
+    console.log(message);
+  }
+}
+
+class FileLogger implements Logger {
+  log(message: string) {
+    // Write to file
+  }
+}
+
+// Register with the interface token
+container.add({
+  token: LOGGER,
+  factory: (): Logger => new ConsoleLogger(),
+});
+
+// Inject with type annotation
+class UserService {
+  constructor() {
+    const logger = inject<Logger>(LOGGER);
+    logger.log('UserService initialized');
+  }
+}
+```
+
+## Examples
+
+### Multiple Implementations
+
+Use different tokens for different implementations of similar services:
+
+```typescript
+const PRIMARY_CACHE = Symbol('PRIMARY_CACHE');
+const SECONDARY_CACHE = Symbol('SECONDARY_CACHE');
+
+container.add({
+  token: PRIMARY_CACHE,
+  factory: () => new RedisCache('localhost:6379'),
+});
+
+container.add({
+  token: SECONDARY_CACHE,
+  factory: () => new MemoryCache(),
+});
+
+class DataService {
+  constructor() {
+    const primaryCache = inject(PRIMARY_CACHE);
+    const secondaryCache = inject(SECONDARY_CACHE);
+  }
+}
+```
+
+### Environment-Specific Configuration
+
+```typescript
+const ENV = Symbol('ENVIRONMENT');
+const CONFIG = Symbol('CONFIG');
+
+type Environment = 'development' | 'production' | 'test';
+
+interface Config {
+  apiUrl: string;
+  debug: boolean;
+}
+
+container.add({
+  token: ENV,
+  factory: (): Environment => 
+    (process.env.NODE_ENV as Environment) || 'development',
+});
+
+container.add({
+  token: CONFIG,
+  factory: (): Config => {
+    const env = inject<Environment>(ENV);
+    return {
+      apiUrl: env === 'production' 
+        ? 'https://api.example.com'
+        : 'http://localhost:3000',
+      debug: env === 'development',
+    };
+  },
+});
+```

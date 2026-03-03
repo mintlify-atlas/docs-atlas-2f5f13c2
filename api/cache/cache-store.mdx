@@ -1,0 +1,253 @@
+---
+title: 'CacheStore'
+description: 'Cache storage interface for implementing custom cache backends'
+---
+
+## Overview
+
+The `CacheStore` interface defines the contract for cache storage implementations. It provides the methods needed to store, retrieve, and manage cached data. You can implement this interface to create custom cache backends.
+
+## Interface: CacheStore
+
+```typescript
+interface CacheStore {
+  get: (key: string) => Promise<string | undefined>;
+  set: (key: string, value: string, ttl?: number) => Promise<boolean>;
+  del: (key: string) => Promise<boolean>;
+  clear: () => Promise<boolean>;
+
+  getMultiple?: (keys: string[]) => Promise<(string | undefined)[]>;
+  setMultiple?: (values: Record<string, string>, ttl?: number) => Promise<boolean>;
+  delMultiple?: (keys: string[]) => Promise<boolean>;
+  has?: (key: string) => Promise<boolean>;
+
+  dispose?: () => Promise<void> | void;
+}
+```
+
+## Required Methods
+
+### get()
+
+Retrieves a value from the cache store.
+
+```typescript
+get(key: string): Promise<string | undefined>
+```
+
+<ParamField path="key" type="string" required>
+  The normalized cache key to retrieve
+</ParamField>
+
+<ResponseField name="return" type="Promise<string | undefined>">
+  The cached value as a string, or `undefined` if not found
+</ResponseField>
+
+<Note>
+  Values are stored as JSON strings. The `Cacher` class handles serialization and deserialization.
+</Note>
+
+### set()
+
+Stores a value in the cache store.
+
+```typescript
+set(key: string, value: string, ttl?: number): Promise<boolean>
+```
+
+<ParamField path="key" type="string" required>
+  The normalized cache key to store the value under
+</ParamField>
+
+<ParamField path="value" type="string" required>
+  The value to cache as a JSON string
+</ParamField>
+
+<ParamField path="ttl" type="number">
+  Time-to-live in seconds. The implementation should expire the entry after this duration.
+</ParamField>
+
+<ResponseField name="return" type="Promise<boolean>">
+  Returns `true` if the operation was successful, `false` otherwise
+</ResponseField>
+
+### del()
+
+Deletes a value from the cache store.
+
+```typescript
+del(key: string): Promise<boolean>
+```
+
+<ParamField path="key" type="string" required>
+  The normalized cache key to delete
+</ParamField>
+
+<ResponseField name="return" type="Promise<boolean>">
+  Returns `true` if the operation was successful, `false` otherwise
+</ResponseField>
+
+### clear()
+
+Clears all values from the cache store.
+
+```typescript
+clear(): Promise<boolean>
+```
+
+<ResponseField name="return" type="Promise<boolean>">
+  Returns `true` if the operation was successful, `false` otherwise
+</ResponseField>
+
+## Optional Methods
+
+These methods are optional but can improve performance when implemented natively by the store.
+
+### getMultiple()
+
+Retrieves multiple values from the cache store at once.
+
+```typescript
+getMultiple?(keys: string[]): Promise<(string | undefined)[]>
+```
+
+<ParamField path="keys" type="string[]" required>
+  Array of normalized cache keys to retrieve
+</ParamField>
+
+<ResponseField name="return" type="Promise<(string | undefined)[]>">
+  Array of values in the same order as the keys
+</ResponseField>
+
+<Note>
+  If not implemented, the `Cacher` class will fall back to calling `get()` multiple times.
+</Note>
+
+### setMultiple()
+
+Stores multiple values in the cache store at once.
+
+```typescript
+setMultiple?(values: Record<string, string>, ttl?: number): Promise<boolean>
+```
+
+<ParamField path="values" type="Record<string, string>" required>
+  Object mapping normalized cache keys to JSON string values
+</ParamField>
+
+<ParamField path="ttl" type="number">
+  Time-to-live in seconds for all values
+</ParamField>
+
+<ResponseField name="return" type="Promise<boolean>">
+  Returns `true` if all operations were successful, `false` otherwise
+</ResponseField>
+
+### delMultiple()
+
+Deletes multiple values from the cache store at once.
+
+```typescript
+delMultiple?(keys: string[]): Promise<boolean>
+```
+
+<ParamField path="keys" type="string[]" required>
+  Array of normalized cache keys to delete
+</ParamField>
+
+<ResponseField name="return" type="Promise<boolean>">
+  Returns `true` if all operations were successful, `false` otherwise
+</ResponseField>
+
+### has()
+
+Checks if a key exists in the cache store.
+
+```typescript
+has?(key: string): Promise<boolean>
+```
+
+<ParamField path="key" type="string" required>
+  The normalized cache key to check
+</ParamField>
+
+<ResponseField name="return" type="Promise<boolean>">
+  Returns `true` if the key exists, `false` otherwise
+</ResponseField>
+
+### dispose()
+
+Cleans up resources and closes connections.
+
+```typescript
+dispose?(): Promise<void> | void
+```
+
+<Note>
+  This method is called when the `Cacher` instance is disposed. Use it to clean up connections, timers, or other resources.
+</Note>
+
+## Built-in Implementations
+
+The framework provides several built-in cache store implementations:
+
+- **NullCache**: A no-op cache that doesn't store anything (default)
+- **MemoryCache**: An in-memory cache using a Map
+- **FileCache**: A file-system based cache (available in `@resolid/cache-file`)
+
+## Custom Implementation Example
+
+```typescript
+import type { CacheStore } from '@resolid/cache';
+
+class RedisCacheStore implements CacheStore {
+  private client: RedisClient;
+
+  constructor(client: RedisClient) {
+    this.client = client;
+  }
+
+  async get(key: string): Promise<string | undefined> {
+    const value = await this.client.get(key);
+    return value ?? undefined;
+  }
+
+  async set(key: string, value: string, ttl?: number): Promise<boolean> {
+    if (ttl) {
+      await this.client.setex(key, ttl, value);
+    } else {
+      await this.client.set(key, value);
+    }
+    return true;
+  }
+
+  async del(key: string): Promise<boolean> {
+    await this.client.del(key);
+    return true;
+  }
+
+  async clear(): Promise<boolean> {
+    await this.client.flushdb();
+    return true;
+  }
+
+  async has(key: string): Promise<boolean> {
+    const exists = await this.client.exists(key);
+    return exists === 1;
+  }
+
+  async dispose(): Promise<void> {
+    await this.client.quit();
+  }
+}
+
+// Usage
+const cacher = new Cacher({
+  store: new RedisCacheStore(redisClient),
+  defaultTtl: 3600
+});
+```
+
+## Source Code
+
+Location: `packages/cache/src/stores/types.ts`

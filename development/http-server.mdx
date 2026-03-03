@@ -1,0 +1,365 @@
+---
+title: HTTP Server
+description: Set up and configure the HTTP server using Hono in Resolid
+---
+
+Resolid uses [Hono](https://hono.dev/) as its HTTP server framework, providing a fast, lightweight, and standards-compliant foundation for handling requests.
+
+## Creating a Server
+
+Use `createHonoNodeServer` to set up a Node.js HTTP server:
+
+```typescript title="server.ts"
+import { createHonoNodeServer } from "@resolid/dev/http";
+
+export default await createHonoNodeServer({
+  port: 3000,
+});
+```
+
+## Server Options
+
+The `createHonoNodeServer` function accepts comprehensive configuration options:
+
+```typescript
+interface HonoNodeServerOptions {
+  // Server configuration
+  port?: number;                        // Default: 3000
+  defaultLogger?: boolean;              // Default: true in dev, false in prod
+  
+  // Callbacks
+  listeningListener?: (info: AddressInfo) => void;
+  onShutdown?: () => Promise<void> | void;
+  
+  // Hono configuration
+  configure?: (app: Hono) => Promise<void> | void;
+  honoOptions?: HonoOptions;
+  getLoadContext?: (c: Context, options) => RouterContextProvider;
+}
+```
+
+### Port
+
+Specify the server port:
+
+```typescript
+export default await createHonoNodeServer({
+  port: process.env.PORT ? parseInt(process.env.PORT) : 3000,
+});
+```
+
+### Logger
+
+Control the default HTTP request logger:
+
+```typescript
+export default await createHonoNodeServer({
+  defaultLogger: true, // Enable logging
+});
+```
+
+The logger outputs request information:
+```
+<-- GET /
+--> GET / 200 42ms
+```
+
+### Configure Hook
+
+Customize the Hono application before it starts handling requests:
+
+```typescript
+import { clientIp, requestId, requestOrigin } from "@resolid/dev/http";
+
+export default await createHonoNodeServer({
+  async configure(app) {
+    // Add middlewares
+    app.use("*", requestId());
+    app.use("*", requestOrigin(nodeRequestOriginGetter()));
+    app.use("*", clientIp(nodeClientIpGetter()));
+    
+    // Add custom routes
+    app.get("/health", (c) => c.json({ status: "ok" }));
+  },
+});
+```
+
+### Load Context
+
+Provide custom context to React Router loaders and actions:
+
+```typescript
+import { RouterContextProvider } from "react-router";
+
+export default await createHonoNodeServer({
+  getLoadContext(c, { build, mode }) {
+    const context = new RouterContextProvider();
+    
+    // Add custom context
+    context.set("db", db);
+    context.set("requestId", c.get("requestId"));
+    
+    return context;
+  },
+});
+```
+
+Access the context in your routes:
+
+```typescript
+import type { Route } from "./+types/route";
+
+export async function loader({ context }: Route.LoaderArgs) {
+  const db = context.get("db");
+  const requestId = context.get("requestId");
+  
+  // Use context values
+}
+```
+
+### Shutdown Hook
+
+Perform cleanup when the server shuts down:
+
+```typescript
+export default await createHonoNodeServer({
+  async onShutdown() {
+    await db.close();
+    console.log("Database connection closed");
+  },
+});
+```
+
+The server listens for `SIGINT` and `SIGTERM` signals.
+
+## Middlewares
+
+Resolid provides middleware utilities for common server concerns.
+
+### Request ID
+
+Generate unique identifiers for each request:
+
+```typescript
+import { requestId } from "@resolid/dev/http";
+
+app.use("*", requestId());
+
+// Access in routes
+app.get("/api/users", (c) => {
+  const id = c.get("requestId"); // "a3f5b2c8d9e1f0a4b7c6d5e4f3a2b1c0"
+  return c.json({ requestId: id });
+});
+```
+
+#### Custom Generator
+
+Provide a custom ID generator:
+
+```typescript
+import { requestId } from "@resolid/dev/http";
+import { randomUUID } from "node:crypto";
+
+app.use("*", requestId(() => randomUUID()));
+```
+
+### Request Origin
+
+Capture the request origin URL:
+
+```typescript
+import { requestOrigin, nodeRequestOriginGetter } from "@resolid/dev/http";
+
+app.use("*", requestOrigin(nodeRequestOriginGetter()));
+
+// Access in routes
+app.get("/api/data", (c) => {
+  const origin = c.get("requestOrigin"); // "https://example.com"
+});
+```
+
+#### Proxy Support
+
+Enable proxy detection for origin resolution:
+
+```typescript
+import { nodeRequestOriginGetter } from "@resolid/dev/http";
+
+app.use("*", requestOrigin(nodeRequestOriginGetter(true)));
+```
+
+This reads origin from `X-Forwarded-Host` and `X-Forwarded-Proto` headers when behind a proxy.
+
+### Client IP
+
+Extract the client's IP address:
+
+```typescript
+import { clientIp, nodeClientIpGetter } from "@resolid/dev/http";
+
+app.use("*", clientIp(nodeClientIpGetter()));
+
+// Access in routes
+app.get("/api/location", (c) => {
+  const ip = c.get("clientIp"); // "192.168.1.100"
+  return c.json({ ip });
+});
+```
+
+#### Custom IP Resolution
+
+Configure IP resolution options:
+
+```typescript
+import { nodeClientIpGetter } from "@resolid/dev/http";
+
+app.use("*", clientIp(nodeClientIpGetter({
+  headers: ["cf-connecting-ip", "x-real-ip"],
+  headersOnly: false,
+})));
+```
+
+## Static Files
+
+Resolid automatically serves static files in production:
+
+```typescript
+// In production mode
+app.use(
+  `/${import.meta.env.RESOLID_ASSETS_DIR}/*`,
+  cacheControl(60 * 60 * 24 * 365, true),
+  serveStatic({ root: clientBuildPath }),
+);
+
+app.use("*", 
+  cacheControl(60 * 60), 
+  serveStatic({ root: clientBuildPath })
+);
+```
+
+### Cache Control
+
+Use the `cacheControl` middleware to set caching headers:
+
+```typescript
+import { cacheControl } from "@resolid/dev/http";
+
+// Cache for 1 hour
+app.use("*", cacheControl(60 * 60));
+
+// Cache assets immutably for 1 year
+app.use("/assets/*", cacheControl(60 * 60 * 24 * 365, true));
+```
+
+The middleware:
+- Only applies to file requests (URLs with extensions)
+- Skips `.data` files (React Router data requests)
+- Sets `Cache-Control` with `public` and optional `immutable`
+
+## Platform Adapters
+
+Resolid provides adapters for different deployment platforms.
+
+### Vercel
+
+```typescript
+import { createHonoVercelServer } from "@resolid/dev/http";
+
+export default await createHonoVercelServer({
+  async configure(app) {
+    // Configure your app
+  },
+});
+```
+
+### Netlify
+
+```typescript
+import { createHonoNetlifyServer } from "@resolid/dev/http";
+
+export default await createHonoNetlifyServer({
+  async configure(app) {
+    // Configure your app
+  },
+});
+```
+
+## Complete Example
+
+Here's a comprehensive server setup:
+
+```typescript title="server.ts"
+import {
+  createHonoNodeServer,
+  clientIp,
+  nodeClientIpGetter,
+  requestId,
+  requestOrigin,
+  nodeRequestOriginGetter,
+} from "@resolid/dev/http";
+import { RouterContextProvider } from "react-router";
+import { db } from "./db";
+
+export default await createHonoNodeServer({
+  port: process.env.PORT ? parseInt(process.env.PORT) : 3000,
+  defaultLogger: true,
+  
+  async configure(app) {
+    // Request tracking
+    app.use("*", requestId());
+    app.use("*", requestOrigin(nodeRequestOriginGetter(true)));
+    app.use("*", clientIp(nodeClientIpGetter()));
+    
+    // Health check
+    app.get("/health", (c) => {
+      return c.json({ 
+        status: "ok",
+        timestamp: new Date().toISOString(),
+      });
+    });
+    
+    // API routes
+    app.get("/api/info", (c) => {
+      return c.json({
+        requestId: c.get("requestId"),
+        clientIp: c.get("clientIp"),
+        origin: c.get("requestOrigin"),
+      });
+    });
+  },
+  
+  getLoadContext(c, { build, mode }) {
+    const context = new RouterContextProvider();
+    context.set("db", db);
+    context.set("requestId", c.get("requestId"));
+    context.set("clientIp", c.get("clientIp"));
+    return context;
+  },
+  
+  async onShutdown() {
+    await db.close();
+    console.log("Server shutdown complete");
+  },
+  
+  listeningListener(info) {
+    console.log(`Server listening on port ${info.port}`);
+  },
+});
+```
+
+## Type Safety
+
+Extend Hono's type definitions for middleware variables:
+
+```typescript
+declare module "hono" {
+  interface ContextVariableMap {
+    requestId: string;
+    clientIp: string;
+    requestOrigin: string | undefined;
+    db: Database;
+  }
+}
+```
+
+This provides autocomplete and type checking when accessing context variables.

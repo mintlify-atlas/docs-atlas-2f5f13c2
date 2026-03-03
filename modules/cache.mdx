@@ -1,0 +1,640 @@
+---
+title: 'Cache'
+description: 'Complete guide to @resolid/cache - Cacher class, storage backends, and caching strategies'
+---
+
+The `@resolid/cache` package provides a fully-typed, flexible cache system for modern TypeScript projects. It supports single and batch operations, optional TTL, and pluggable storage backends.
+
+## Installation
+
+```bash
+pnpm add @resolid/cache
+# or
+npm install @resolid/cache
+# or
+yarn add @resolid/cache
+# or
+bun add @resolid/cache
+```
+
+## Basic Usage
+
+Create a cache instance and perform basic operations:
+
+```typescript
+import { Cacher } from "@resolid/cache";
+
+const cache = new Cacher({ defaultTtl: 1000 }); // 1000ms TTL
+
+// Store a value
+await cache.set("user:1", { id: 1, name: "Alice" });
+
+// Retrieve a value
+const user = await cache.get<User>("user:1");
+console.log(user); // { id: 1, name: "Alice" }
+
+// Check if key exists
+const exists = await cache.has("user:1"); // true
+
+// Delete a value
+await cache.del("user:1");
+
+// Clear all values
+await cache.clear();
+```
+
+## Core Operations
+
+### get() - Retrieve Value
+
+Retrieve a value from the cache:
+
+```typescript
+// Get with type parameter
+const user = await cache.get<User>("user:1");
+
+// Get with default value
+const settings = await cache.get("settings", { theme: "dark" });
+```
+
+**Type signature** (see `packages/cache/src/index.ts:20`):
+```typescript
+get<T>(key: string, defaultValue?: T): Promise<T | undefined>
+```
+
+### set() - Store Value
+
+Store a value in the cache with optional TTL:
+
+```typescript
+// Set with default TTL
+await cache.set("user:1", userData);
+
+// Set with custom TTL (in seconds)
+await cache.set("session:abc", sessionData, 3600); // 1 hour
+
+// Set without TTL (permanent, if supported by store)
+await cache.set("config", configData, undefined);
+```
+
+**Type signature** (see `packages/cache/src/index.ts:26`):
+```typescript
+set<T>(key: string, value: T, ttl?: number): Promise<boolean>
+```
+
+### del() - Delete Value
+
+Delete a value from the cache:
+
+```typescript
+const deleted = await cache.del("user:1");
+console.log(deleted); // true if deleted, false if key didn't exist
+```
+
+**Type signature** (see `packages/cache/src/index.ts:30`):
+```typescript
+del(key: string): Promise<boolean>
+```
+
+### clear() - Clear All Values
+
+Remove all values from the cache:
+
+```typescript
+await cache.clear();
+```
+
+**Type signature** (see `packages/cache/src/index.ts:34`):
+```typescript
+clear(): Promise<boolean>
+```
+
+### has() - Check Existence
+
+Check if a key exists in the cache:
+
+```typescript
+const exists = await cache.has("user:1");
+if (exists) {
+  console.log("User is cached");
+}
+```
+
+**Type signature** (see `packages/cache/src/index.ts:73`):
+```typescript
+has(key: string): Promise<boolean>
+```
+
+## Batch Operations
+
+Perform operations on multiple keys efficiently:
+
+### getMultiple() - Get Multiple Values
+
+```typescript
+const users = await cache.getMultiple<User>(["user:1", "user:2", "user:3"]);
+// Returns: [User | undefined, User | undefined, User | undefined]
+
+// With default value
+const usersWithDefault = await cache.getMultiple(
+  ["user:1", "user:2"],
+  { id: 0, name: "Unknown" }
+);
+```
+
+**Type signature** (see `packages/cache/src/index.ts:38`):
+```typescript
+getMultiple<T>(keys: string[], defaultValue?: T): Promise<(T | undefined)[]>
+```
+
+### setMultiple() - Set Multiple Values
+
+```typescript
+await cache.setMultiple({
+  "user:1": { id: 1, name: "Alice" },
+  "user:2": { id: 2, name: "Bob" },
+  "user:3": { id: 3, name: "Charlie" },
+});
+
+// With custom TTL
+await cache.setMultiple(
+  {
+    "session:a": sessionA,
+    "session:b": sessionB,
+  },
+  3600 // 1 hour
+);
+```
+
+**Type signature** (see `packages/cache/src/index.ts:47`):
+```typescript
+setMultiple<T>(values: Record<string, T>, ttl?: number): Promise<boolean>
+```
+
+### delMultiple() - Delete Multiple Values
+
+```typescript
+await cache.delMultiple(["user:1", "user:2", "user:3"]);
+```
+
+**Type signature** (see `packages/cache/src/index.ts:65`):
+```typescript
+delMultiple(keys: string[]): Promise<boolean>
+```
+
+## Storage Backends
+
+### NullCache (Default)
+
+A no-op cache that doesn't store anything. Useful for development or disabling cache:
+
+```typescript
+import { Cacher, NullCache } from "@resolid/cache";
+
+const cache = new Cacher({
+  store: new NullCache(),
+});
+
+await cache.set("key", "value");
+const value = await cache.get("key"); // undefined
+```
+
+### MemoryCache
+
+An in-memory cache using LRU eviction:
+
+```typescript
+import { Cacher, MemoryCache } from "@resolid/cache";
+
+const cache = new Cacher({
+  store: new MemoryCache(1000), // Max 1000 items
+  defaultTtl: 60, // 60 seconds default TTL
+});
+
+await cache.set("key", "value");
+const value = await cache.get("key"); // "value"
+```
+
+**Constructor** (see `packages/cache/src/stores/memory-cache.ts:7`):
+```typescript
+constructor(maxSize = 1000)
+```
+
+### Custom Store
+
+Implement your own cache store by implementing the `CacheStore` interface:
+
+```typescript
+import type { CacheStore } from "@resolid/cache";
+import Redis from "ioredis";
+
+class RedisCache implements CacheStore {
+  private client: Redis;
+
+  constructor(client: Redis) {
+    this.client = client;
+  }
+
+  async get(key: string): Promise<string | undefined> {
+    const value = await this.client.get(key);
+    return value ?? undefined;
+  }
+
+  async set(key: string, value: string, ttl?: number): Promise<boolean> {
+    if (ttl) {
+      await this.client.setex(key, ttl, value);
+    } else {
+      await this.client.set(key, value);
+    }
+    return true;
+  }
+
+  async del(key: string): Promise<boolean> {
+    const count = await this.client.del(key);
+    return count > 0;
+  }
+
+  async clear(): Promise<boolean> {
+    await this.client.flushdb();
+    return true;
+  }
+
+  async has(key: string): Promise<boolean> {
+    const exists = await this.client.exists(key);
+    return exists === 1;
+  }
+
+  async dispose(): Promise<void> {
+    await this.client.quit();
+  }
+}
+
+// Use custom store
+const redis = new Redis();
+const cache = new Cacher({
+  store: new RedisCache(redis),
+});
+```
+
+## Configuration
+
+### Cache Options
+
+Configure the cache with options:
+
+```typescript
+import { Cacher, MemoryCache } from "@resolid/cache";
+
+const cache = new Cacher({
+  // Custom store (defaults to NullCache)
+  store: new MemoryCache(5000),
+  
+  // Default TTL in seconds (optional)
+  defaultTtl: 300, // 5 minutes
+});
+```
+
+**Interface** (see `packages/cache/src/index.ts:6`):
+```typescript
+interface CacheOptions {
+  store?: CacheStore;
+  defaultTtl?: number;
+}
+```
+
+### CacheStore Interface
+
+The `CacheStore` interface defines the contract for storage backends:
+
+```typescript
+export interface CacheStore {
+  // Required methods
+  get: (key: string) => Promise<string | undefined>;
+  set: (key: string, value: string, ttl?: number) => Promise<boolean>;
+  del: (key: string) => Promise<boolean>;
+  clear: () => Promise<boolean>;
+
+  // Optional batch operations
+  getMultiple?: (keys: string[]) => Promise<(string | undefined)[]>;
+  setMultiple?: (values: Record<string, string>, ttl?: number) => Promise<boolean>;
+  delMultiple?: (keys: string[]) => Promise<boolean>;
+  
+  // Optional methods
+  has?: (key: string) => Promise<boolean>;
+  dispose?: () => Promise<void> | void;
+}
+```
+
+See source at `packages/cache/src/stores/types.ts:1`
+
+## Common Patterns
+
+### Cache-Aside Pattern
+
+Load data from cache, falling back to source:
+
+```typescript
+async function getUser(id: number): Promise<User> {
+  const cacheKey = `user:${id}`;
+  
+  // Try cache first
+  let user = await cache.get<User>(cacheKey);
+  
+  if (!user) {
+    // Cache miss - load from database
+    user = await database.users.findById(id);
+    
+    if (user) {
+      // Store in cache for next time
+      await cache.set(cacheKey, user, 3600); // 1 hour
+    }
+  }
+  
+  return user;
+}
+```
+
+### Write-Through Pattern
+
+Update cache and source together:
+
+```typescript
+async function updateUser(id: number, data: Partial<User>): Promise<User> {
+  // Update database
+  const user = await database.users.update(id, data);
+  
+  // Update cache
+  const cacheKey = `user:${id}`;
+  await cache.set(cacheKey, user, 3600);
+  
+  return user;
+}
+```
+
+### Cache Invalidation
+
+Invalidate related cache entries:
+
+```typescript
+async function deleteUser(id: number): Promise<void> {
+  // Delete from database
+  await database.users.delete(id);
+  
+  // Invalidate all related cache entries
+  await cache.delMultiple([
+    `user:${id}`,
+    `user:${id}:posts`,
+    `user:${id}:settings`,
+  ]);
+}
+```
+
+### Memoization
+
+Cache expensive function results:
+
+```typescript
+class ExpensiveService {
+  constructor(private cache: Cacher) {}
+
+  async computeHash(data: string): Promise<string> {
+    const cacheKey = `hash:${data.substring(0, 20)}`;
+    
+    let hash = await this.cache.get<string>(cacheKey);
+    
+    if (!hash) {
+      // Expensive computation
+      hash = await this.performExpensiveHash(data);
+      await this.cache.set(cacheKey, hash, 86400); // 24 hours
+    }
+    
+    return hash;
+  }
+
+  private async performExpensiveHash(data: string): Promise<string> {
+    // ... expensive operation
+  }
+}
+```
+
+### Batch Loading
+
+Load multiple items efficiently:
+
+```typescript
+async function getUsers(ids: number[]): Promise<User[]> {
+  const cacheKeys = ids.map(id => `user:${id}`);
+  
+  // Try to get all from cache
+  const cached = await cache.getMultiple<User>(cacheKeys);
+  
+  // Find which IDs need to be loaded
+  const missedIds: number[] = [];
+  const results: User[] = [];
+  
+  cached.forEach((user, index) => {
+    if (user) {
+      results[index] = user;
+    } else {
+      missedIds.push(ids[index]);
+    }
+  });
+  
+  // Load missed items from database
+  if (missedIds.length > 0) {
+    const users = await database.users.findByIds(missedIds);
+    
+    // Store in cache
+    const toCache: Record<string, User> = {};
+    users.forEach((user, index) => {
+      toCache[`user:${user.id}`] = user;
+      results[ids.indexOf(user.id)] = user;
+    });
+    
+    await cache.setMultiple(toCache, 3600);
+  }
+  
+  return results;
+}
+```
+
+### Namespaced Keys
+
+Organize cache keys by namespace:
+
+```typescript
+class NamespacedCache {
+  constructor(
+    private cache: Cacher,
+    private namespace: string
+  ) {}
+
+  private key(key: string): string {
+    return `${this.namespace}:${key}`;
+  }
+
+  async get<T>(key: string): Promise<T | undefined> {
+    return this.cache.get<T>(this.key(key));
+  }
+
+  async set<T>(key: string, value: T, ttl?: number): Promise<boolean> {
+    return this.cache.set(this.key(key), value, ttl);
+  }
+
+  async del(key: string): Promise<boolean> {
+    return this.cache.del(this.key(key));
+  }
+}
+
+// Usage
+const userCache = new NamespacedCache(cache, "users");
+const postCache = new NamespacedCache(cache, "posts");
+
+await userCache.set("1", userData); // Stored as "users:1"
+await postCache.set("1", postData); // Stored as "posts:1"
+```
+
+### TTL Strategies
+
+Implement different TTL strategies:
+
+```typescript
+class SmartCache {
+  constructor(private cache: Cacher) {}
+
+  // Short TTL for frequently changing data
+  async setVolatile<T>(key: string, value: T): Promise<boolean> {
+    return this.cache.set(key, value, 60); // 1 minute
+  }
+
+  // Medium TTL for stable data
+  async setStable<T>(key: string, value: T): Promise<boolean> {
+    return this.cache.set(key, value, 3600); // 1 hour
+  }
+
+  // Long TTL for static data
+  async setStatic<T>(key: string, value: T): Promise<boolean> {
+    return this.cache.set(key, value, 86400); // 24 hours
+  }
+
+  // No TTL for permanent data
+  async setPermanent<T>(key: string, value: T): Promise<boolean> {
+    return this.cache.set(key, value); // No expiration
+  }
+}
+```
+
+## Resource Cleanup
+
+Dispose of cache resources when done:
+
+```typescript
+const cache = new Cacher({
+  store: new MemoryCache(),
+});
+
+// Use cache...
+
+// Clean up when shutting down
+await cache.dispose();
+```
+
+**Type signature** (see `packages/cache/src/index.ts:79`):
+```typescript
+dispose(): Promise<void>
+```
+
+## API Reference
+
+### Cacher Class
+
+See source at `packages/cache/src/index.ts:11`
+
+```typescript
+class Cacher {
+  constructor(options?: CacheOptions);
+  
+  get<T>(key: string, defaultValue?: T): Promise<T | undefined>;
+  set<T>(key: string, value: T, ttl?: number): Promise<boolean>;
+  del(key: string): Promise<boolean>;
+  clear(): Promise<boolean>;
+  has(key: string): Promise<boolean>;
+  
+  getMultiple<T>(keys: string[], defaultValue?: T): Promise<(T | undefined)[]>;
+  setMultiple<T>(values: Record<string, T>, ttl?: number): Promise<boolean>;
+  delMultiple(keys: string[]): Promise<boolean>;
+  
+  dispose(): Promise<void>;
+}
+```
+
+## Best Practices
+
+### 1. Use Appropriate TTL Values
+
+```typescript
+// Short TTL for real-time data
+await cache.set("stock:AAPL", price, 10); // 10 seconds
+
+// Medium TTL for stable data
+await cache.set("user:1", user, 3600); // 1 hour
+
+// Long TTL for static data
+await cache.set("config", config, 86400); // 24 hours
+```
+
+### 2. Use Structured Keys
+
+```typescript
+// Good: Clear, structured keys
+await cache.set("user:1:profile", profile);
+await cache.set("post:42:comments", comments);
+
+// Avoid: Unstructured keys
+await cache.set("u1p", profile);
+await cache.set("p42c", comments);
+```
+
+### 3. Handle Cache Misses Gracefully
+
+```typescript
+const user = await cache.get<User>("user:1");
+
+if (!user) {
+  // Load from source and cache
+  const freshUser = await loadUserFromDb(1);
+  await cache.set("user:1", freshUser);
+  return freshUser;
+}
+
+return user;
+```
+
+### 4. Use Batch Operations When Possible
+
+```typescript
+// Good: Single batch operation
+const users = await cache.getMultiple(userKeys);
+
+// Avoid: Multiple individual operations
+const users = await Promise.all(
+  userKeys.map(key => cache.get(key))
+);
+```
+
+### 5. Clean Up Resources
+
+```typescript
+const cache = new Cacher({ store: new MemoryCache() });
+
+try {
+  // Use cache
+} finally {
+  await cache.dispose();
+}
+```
+
+## Related Resources
+
+- [Source code on GitHub](https://github.com/resolid/framework/tree/main/packages/cache)
+- [npm package](https://www.npmjs.com/package/@resolid/cache)

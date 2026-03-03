@@ -1,0 +1,304 @@
+---
+title: 'Logging Configuration'
+description: 'Configure logging behavior, sinks, and categories'
+---
+
+## Overview
+
+The Resolid logging system is highly configurable, supporting multiple sinks, categories, filters, and custom log targets. This guide covers all configuration options.
+
+## Creating a Log Extension
+
+Use `createLogExtension()` to set up logging for your application:
+
+```typescript
+import { createLogExtension, getConsoleSink } from '@resolid/app-log';
+import { createApp } from '@resolid/core';
+
+const app = createApp({
+  extensions: [
+    createLogExtension([], {
+      defaultCategory: 'my-app',
+      sinks: {
+        console: getConsoleSink()
+      }
+    })
+  ]
+});
+```
+
+## Function: createLogExtension()
+
+Creates a logging extension for a Resolid application.
+
+```typescript
+function createLogExtension(
+  targets?: readonly LogTarget[],
+  config?: Omit<LogConfig, 'sinks'>
+): ExtensionCreator
+```
+
+<ParamField path="targets" type="LogTarget[]" default="[]">
+  Array of log targets that provide additional sinks from services
+</ParamField>
+
+<ParamField path="config" type="LogConfig">
+  Logging configuration options
+</ParamField>
+
+<ParamField path="config.defaultCategory" type="string" default="app">
+  The default category for logs. Typically set to your application name.
+</ParamField>
+
+<ParamField path="config.sinks" type="Record<string, Sink>">
+  Named sinks for log output
+</ParamField>
+
+<ParamField path="config.filters" type="object">
+  Filter configurations for controlling log output
+</ParamField>
+
+<ParamField path="config.loggers" type="LoggerEntity[]">
+  Array of category-specific logger configurations
+</ParamField>
+
+## Configuration Options
+
+### Sinks
+
+Sinks define where log messages are sent. The framework provides a console sink by default:
+
+```typescript
+import { getConsoleSink } from '@logtape/logtape';
+
+const config = {
+  sinks: {
+    console: getConsoleSink(),
+    // Add more sinks as needed
+  }
+};
+```
+
+### Categories and Loggers
+
+Configure specific behavior for different log categories:
+
+```typescript
+const config = {
+  defaultCategory: 'my-app',
+  loggers: [
+    {
+      category: 'database',
+      sinks: ['console'],
+      level: 'debug'
+    },
+    {
+      category: 'api',
+      sinks: ['console'],
+      level: 'info'
+    },
+    {
+      category: 'security',
+      sinks: ['console', 'file'],
+      level: 'warn'
+    }
+  ]
+};
+```
+
+### Filters
+
+Filters control which log messages are output based on various criteria:
+
+```typescript
+const config = {
+  filters: {
+    // Filter by log level
+    myFilter: (log) => log.level >= LogLevel.INFO,
+    // Filter by category
+    productionFilter: (log) => !log.category.includes('debug')
+  }
+};
+```
+
+## Log Targets
+
+Log targets allow you to inject sinks from dependency injection services:
+
+```typescript
+import { createLogTarget, LogService } from '@resolid/app-log';
+import { FileLogService } from '@resolid/app-log-file';
+
+const fileLogTarget = createLogTarget({
+  ref: FileLogService,
+  sinks: (service) => ({
+    file: service.createFileSink('./logs/app.log')
+  })
+});
+
+const app = createApp({
+  extensions: [
+    createLogExtension([fileLogTarget], {
+      defaultCategory: 'my-app',
+      loggers: [
+        {
+          category: 'app',
+          sinks: ['console', 'file']
+        }
+      ]
+    })
+  ]
+});
+```
+
+## Function: createLogTarget()
+
+Creates a log target for providing sinks from a service.
+
+```typescript
+function createLogTarget<T>(target: {
+  ref: Token<T>;
+  sinks: (service: T) => Record<string, Sink>;
+}): LogTarget
+```
+
+<ParamField path="target.ref" type="Token<T>" required>
+  The dependency injection token for the service
+</ParamField>
+
+<ParamField path="target.sinks" type="(service: T) => Record<string, Sink>" required>
+  Function that receives the service instance and returns a map of sink names to sink implementations
+</ParamField>
+
+<ResponseField name="return" type="LogTarget">
+  A log target configuration object
+</ResponseField>
+
+## Complete Configuration Example
+
+```typescript
+import { createApp } from '@resolid/core';
+import { createLogExtension, createLogTarget, getConsoleSink } from '@resolid/app-log';
+import { FileLogService } from '@resolid/app-log-file';
+
+// Create a file log target
+const fileLogTarget = createLogTarget({
+  ref: FileLogService,
+  sinks: (service) => ({
+    errorFile: service.createFileSink('./logs/errors.log'),
+    allFile: service.createFileSink('./logs/all.log')
+  })
+});
+
+// Configure the application
+const app = createApp({
+  extensions: [
+    // File log service provider
+    fileLogExtension(),
+    
+    // Logging configuration
+    createLogExtension([fileLogTarget], {
+      defaultCategory: 'my-app',
+      loggers: [
+        {
+          category: 'my-app',
+          sinks: ['console', 'allFile']
+        },
+        {
+          category: 'database',
+          sinks: ['console', 'allFile'],
+          level: 'debug'
+        },
+        {
+          category: 'api',
+          sinks: ['console', 'allFile'],
+          level: 'info'
+        },
+        {
+          category: 'errors',
+          sinks: ['console', 'errorFile', 'allFile'],
+          level: 'error'
+        }
+      ]
+    })
+  ]
+});
+
+await app.bootstrap();
+
+// Get the logger service
+const logger = app.get(LogService);
+
+// Use different categories
+logger.info('Application started');
+logger.category('database').debug('Connected to PostgreSQL');
+logger.category('api').info('Listening on port 3000');
+logger.category('errors').error('Something went wrong', { error: new Error('Test') });
+```
+
+## Environment-Based Configuration
+
+```typescript
+function createLoggingConfig(env: string) {
+  const isDevelopment = env === 'development';
+  
+  return createLogExtension([], {
+    defaultCategory: 'my-app',
+    loggers: [
+      {
+        category: 'my-app',
+        sinks: ['console'],
+        level: isDevelopment ? 'debug' : 'info'
+      },
+      {
+        category: 'database',
+        sinks: ['console'],
+        level: isDevelopment ? 'debug' : 'warn'
+      }
+    ]
+  });
+}
+
+const app = createApp({
+  extensions: [
+    createLoggingConfig(process.env.NODE_ENV || 'development')
+  ]
+});
+```
+
+## Type Definitions
+
+### LogConfig
+
+```typescript
+type LogConfig = {
+  defaultTarget?: string;
+  defaultCategory?: string;
+  sinks?: Record<string, Sink>;
+  filters?: object;
+  loggers?: LoggerEntity[];
+}
+```
+
+### LoggerEntity
+
+```typescript
+type LoggerEntity = {
+  category: string;
+  sinks?: string[];
+  level?: string;
+}
+```
+
+### LogTarget
+
+```typescript
+interface LogTarget {
+  ref: Token<unknown>;
+  sinks: (service: unknown) => Record<string, Sink>;
+}
+```
+
+## Source Code
+
+Location: `packages/app-log/src/index.ts`

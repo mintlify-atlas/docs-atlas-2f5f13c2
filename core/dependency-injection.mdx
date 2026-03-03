@@ -1,0 +1,451 @@
+---
+title: Dependency Injection
+description: Learn about dependency injection in Resolid Framework using the @resolid/di package
+---
+
+Resolid Framework includes a powerful dependency injection (DI) system powered by the `@resolid/di` package. DI helps manage dependencies between services, promotes loose coupling, and makes testing easier.
+
+## Core Concepts
+
+### Tokens
+
+Tokens are unique identifiers used to register and resolve dependencies. Use symbols for type-safe tokens:
+
+```typescript
+import { type Token } from '@resolid/core';
+
+const LOGGER = Symbol('LOGGER') as Token<Logger>;
+const DATABASE = Symbol('DATABASE') as Token<Database>;
+```
+
+### Providers
+
+Providers define how to create instances of services:
+
+```typescript
+export interface Provider<T = unknown> {
+  token: Token<T>;
+  factory: () => T;
+  scope?: Scope;
+}
+
+export type Scope = 'singleton' | 'transient';
+```
+
+- **`token`** - The unique identifier for this service
+- **`factory`** - Function that creates the service instance
+- **`scope`** - Lifetime of the service (default: `'singleton'`)
+
+### Scopes
+
+**Singleton (default)**: Created once and reused across the application
+
+```typescript
+{
+  token: DATABASE,
+  factory: () => new Database(),
+  scope: 'singleton', // or omit - singleton is default
+}
+```
+
+**Transient**: Created fresh each time it's requested
+
+```typescript
+{
+  token: REQUEST_ID,
+  factory: () => crypto.randomUUID(),
+  scope: 'transient',
+}
+```
+
+## The Container
+
+The `Container` class manages providers and resolves dependencies:
+
+```typescript
+export class Container implements Resolver, Disposable {
+  add(provider: Provider): void;
+  get<T>(token: Token<T>): T;
+  get<T>(token: Token<T>, options: { optional: true }): T | undefined;
+  get<T>(token: Token<T>, options: { lazy: true }): () => T;
+  async dispose(): Promise<void>;
+}
+```
+
+### Registering Providers
+
+Providers can be registered through app options or extensions:
+
+```typescript
+import { createApp } from '@resolid/core';
+
+const LOGGER = Symbol('LOGGER');
+const CONFIG = Symbol('CONFIG');
+
+const app = await createApp({
+  name: 'MyApp',
+  providers: [
+    {
+      token: LOGGER,
+      factory: () => ({
+        log: (msg: string) => console.log(msg),
+        error: (msg: string) => console.error(msg),
+      }),
+    },
+    {
+      token: CONFIG,
+      factory: () => ({
+        apiUrl: 'https://api.example.com',
+        timeout: 5000,
+      }),
+    },
+  ],
+});
+```
+
+### Resolving Dependencies
+
+Resolve services from the container using `app.get()` or the `inject()` function:
+
+```typescript
+// Direct resolution
+const logger = app.get(LOGGER);
+logger.log('Hello!');
+
+// Optional resolution
+const cache = app.get(CACHE, { optional: true });
+if (cache) {
+  cache.set('key', 'value');
+}
+
+// Lazy resolution
+const getDb = app.get(DATABASE, { lazy: true });
+// Database is only created when called
+const db = getDb();
+```
+
+## The inject() Function
+
+Use `inject()` inside factory functions to resolve dependencies:
+
+```typescript
+import { inject } from '@resolid/core';
+
+const LOGGER = Symbol('LOGGER');
+const DATABASE = Symbol('DATABASE');
+const USER_SERVICE = Symbol('USER_SERVICE');
+
+const app = await createApp({
+  name: 'MyApp',
+  providers: [
+    { 
+      token: LOGGER, 
+      factory: () => ({ log: console.log }) 
+    },
+    { 
+      token: DATABASE, 
+      factory: () => new Database() 
+    },
+    {
+      token: USER_SERVICE,
+      factory: () => {
+        // Inject dependencies
+        const logger = inject(LOGGER);
+        const db = inject(DATABASE);
+        
+        return {
+          getUser: async (id: string) => {
+            logger.log(`Fetching user ${id}`);
+            return await db.query('SELECT * FROM users WHERE id = ?', [id]);
+          },
+        };
+      },
+    },
+  ],
+});
+```
+
+### inject() Signatures
+
+```typescript
+// Required injection - throws if not found
+function inject<T>(token: Token<T>): T;
+
+// Optional injection - returns undefined if not found
+function inject<T>(token: Token<T>, options: { optional: true }): T | undefined;
+
+// Lazy injection - returns a function
+function inject<T>(token: Token<T>, options: { lazy: true }): () => T;
+
+// Lazy + optional
+function inject<T>(
+  token: Token<T>, 
+  options: { lazy: true; optional: true }
+): () => T | undefined;
+```
+
+### Example with Options
+
+```typescript
+const SERVICE = Symbol('SERVICE');
+
+const provider = {
+  token: SERVICE,
+  factory: () => {
+    // Optional dependency
+    const cache = inject(CACHE, { optional: true });
+    
+    // Lazy dependency - only resolved when needed
+    const getLogger = inject(LOGGER, { lazy: true });
+    
+    return {
+      doWork: () => {
+        if (cache) {
+          cache.set('working', true);
+        }
+        
+        // Logger is only created here
+        const logger = getLogger();
+        logger.log('Working...');
+      },
+    };
+  },
+};
+```
+
+## Circular Dependency Detection
+
+The container automatically detects and prevents circular dependencies:
+
+```typescript
+const A = Symbol('A');
+const B = Symbol('B');
+
+const app = await createApp({
+  name: 'MyApp',
+  providers: [
+    {
+      token: A,
+      factory: () => {
+        const b = inject(B); // B depends on A
+        return { name: 'A', b };
+      },
+    },
+    {
+      token: B,
+      factory: () => {
+        const a = inject(A); // A depends on B - circular!
+        return { name: 'B', a };
+      },
+    },
+  ],
+});
+
+// Throws: Circular dependency detected A -> B -> A
+app.get(A);
+```
+
+<Warning>
+The DI system will throw an error when circular dependencies are detected. Use lazy injection or restructure your dependencies to break the cycle.
+</Warning>
+
+## Disposal and Cleanup
+
+Services that implement a `dispose()` method will be automatically cleaned up when `app.dispose()` is called:
+
+```typescript
+const DATABASE = Symbol('DATABASE');
+
+const app = await createApp({
+  name: 'MyApp',
+  providers: [
+    {
+      token: DATABASE,
+      factory: () => {
+        const connection = createConnection();
+        
+        return {
+          query: (sql: string) => connection.execute(sql),
+          dispose: async () => {
+            await connection.close();
+            console.log('Database connection closed');
+          },
+        };
+      },
+    },
+  ],
+});
+
+await app.run();
+
+// Cleanup when shutting down
+await app.dispose();
+// Logs: "Database connection closed"
+```
+
+<Note>
+Only singleton-scoped services are disposed. Transient services are created on-demand and not tracked for disposal.
+</Note>
+
+## Type Safety
+
+Resolid's DI system is fully type-safe:
+
+```typescript
+interface Logger {
+  log(message: string): void;
+  error(message: string): void;
+}
+
+interface Database {
+  query(sql: string): Promise<unknown[]>;
+}
+
+const LOGGER = Symbol('LOGGER') as Token<Logger>;
+const DATABASE = Symbol('DATABASE') as Token<Database>;
+
+const app = await createApp({
+  name: 'MyApp',
+  providers: [
+    { token: LOGGER, factory: (): Logger => ({ log: console.log, error: console.error }) },
+    { token: DATABASE, factory: (): Database => new Database() },
+  ],
+  expose: {
+    logger: LOGGER,
+    db: DATABASE,
+  },
+});
+
+// Fully typed!
+app.$.logger.log('message');  // ✓ Valid
+app.$.db.query('SELECT *');   // ✓ Valid
+app.$.logger.query('');       // ✗ Type error
+```
+
+## Best Practices
+
+<CardGroup cols={2}>
+  <Card title="Use Symbols for Tokens" icon="fingerprint">
+    Always use symbols for tokens to avoid naming collisions and ensure uniqueness across your application.
+  </Card>
+  
+  <Card title="Prefer Singletons" icon="circle-dot">
+    Use singleton scope (default) for most services. Only use transient scope when you need a fresh instance each time.
+  </Card>
+  
+  <Card title="Type Your Tokens" icon="code">
+    Cast tokens with `as Token<YourType>` to get full type safety when resolving dependencies.
+  </Card>
+  
+  <Card title="Implement Cleanup" icon="broom">
+    Add `dispose()` methods to services that hold resources (connections, file handles, timers) for proper cleanup.
+  </Card>
+</CardGroup>
+
+## Real-World Example
+
+Here's a complete example showing DI in action:
+
+```typescript
+import { createApp, inject, type Token } from '@resolid/core';
+
+// Define types
+interface Logger {
+  info(message: string): void;
+  error(message: string, error: Error): void;
+}
+
+interface Config {
+  dbHost: string;
+  dbPort: number;
+}
+
+interface Database {
+  connect(): Promise<void>;
+  query(sql: string): Promise<unknown[]>;
+  dispose(): Promise<void>;
+}
+
+interface UserRepository {
+  findById(id: string): Promise<User | null>;
+}
+
+// Create tokens
+const LOGGER = Symbol('LOGGER') as Token<Logger>;
+const CONFIG = Symbol('CONFIG') as Token<Config>;
+const DATABASE = Symbol('DATABASE') as Token<Database>;
+const USER_REPO = Symbol('USER_REPO') as Token<UserRepository>;
+
+// Create app with providers
+const app = await createApp({
+  name: 'UserApp',
+  providers: [
+    {
+      token: LOGGER,
+      factory: () => ({
+        info: (msg) => console.log(`[INFO] ${msg}`),
+        error: (msg, err) => console.error(`[ERROR] ${msg}`, err),
+      }),
+    },
+    {
+      token: CONFIG,
+      factory: () => ({
+        dbHost: process.env.DB_HOST ?? 'localhost',
+        dbPort: Number(process.env.DB_PORT) ?? 5432,
+      }),
+    },
+    {
+      token: DATABASE,
+      factory: () => {
+        const config = inject(CONFIG);
+        const logger = inject(LOGGER);
+        
+        let connected = false;
+        
+        return {
+          connect: async () => {
+            logger.info(`Connecting to ${config.dbHost}:${config.dbPort}`);
+            // Connection logic
+            connected = true;
+          },
+          query: async (sql) => {
+            if (!connected) throw new Error('Not connected');
+            // Query logic
+            return [];
+          },
+          dispose: async () => {
+            logger.info('Closing database connection');
+            connected = false;
+          },
+        };
+      },
+    },
+    {
+      token: USER_REPO,
+      factory: () => {
+        const db = inject(DATABASE);
+        const logger = inject(LOGGER);
+        
+        return {
+          findById: async (id) => {
+            logger.info(`Finding user ${id}`);
+            const results = await db.query(`SELECT * FROM users WHERE id = '${id}'`);
+            return results[0] as User | null;
+          },
+        };
+      },
+    },
+  ],
+  expose: {
+    userRepo: USER_REPO,
+  },
+});
+
+await app.run();
+
+// Use the injected services
+const user = await app.$.userRepo.findById('123');
+
+// Cleanup
+await app.dispose();
+```

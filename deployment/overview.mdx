@@ -1,0 +1,131 @@
+---
+title: 'Deployment Overview'
+description: 'Deploy your Resolid application to production'
+---
+
+Resolid Framework supports deployment to multiple platforms out of the box. Choose the platform that best fits your infrastructure needs.
+
+## Supported Platforms
+
+Resolid provides built-in presets for the following deployment platforms:
+
+<CardGroup cols={3}>
+  <Card title="Node.js" icon="node" href="/deployment/node">
+    Deploy to any Node.js environment
+  </Card>
+  
+  <Card title="Vercel" icon="triangle" href="/deployment/vercel">
+    Deploy to Vercel serverless functions
+  </Card>
+  
+  <Card title="Netlify" icon="leaf" href="/deployment/netlify">
+    Deploy to Netlify Functions
+  </Card>
+</CardGroup>
+
+## Platform Selection
+
+Select your deployment platform in `resolid.config.ts` using the `defineDevConfig` function:
+
+```typescript resolid.config.ts
+import { defineDevConfig } from "@resolid/dev";
+
+export const { vitePluginOptions, reactRouterConfig } = defineDevConfig({
+  appDirectory: "src",
+  nodeVersion: 22,
+  platform: "node", // or "vercel" or "netlify"
+});
+```
+
+## Configuration Options
+
+All platforms support the following common configuration options:
+
+<ParamField path="platform" type="string" required>
+  The deployment platform: `"node"`, `"vercel"`, or `"netlify"`
+</ParamField>
+
+<ParamField path="nodeVersion" type="number" default="22">
+  Node.js runtime version (e.g., 18, 20, 22, 24)
+</ParamField>
+
+<ParamField path="appDirectory" type="string" default="src">
+  Directory containing your application code
+</ParamField>
+
+<ParamField path="includeFiles" type="string[]">
+  Additional files to include in the deployment bundle
+</ParamField>
+
+<ParamField path="entryFile" type="string" default="server.ts">
+  Server entry file path
+</ParamField>
+
+## Dynamic Platform Detection
+
+You can automatically detect the platform based on environment variables:
+
+```typescript resolid.config.ts
+import { defineDevConfig } from "@resolid/dev";
+import { env } from "node:process";
+
+export const { vitePluginOptions, reactRouterConfig } = defineDevConfig({
+  appDirectory: "src",
+  nodeVersion: 24,
+  platform: env.VERCEL == 1 ? "vercel" : env.NETLIFY ? "netlify" : "node",
+});
+```
+
+## Server Setup
+
+Create a server file that conditionally exports the appropriate server for your platform:
+
+```typescript src/server.ts
+import {
+  createHonoNetlifyServer,
+  createHonoNodeServer,
+  createHonoVercelServer,
+} from "@resolid/dev/http.server";
+import { env } from "node:process";
+
+const platform = env.VERCEL ? "vercel" : env.NETLIFY ? "netlify" : "node";
+
+export default platform === "netlify"
+  ? await createHonoNetlifyServer()
+  : platform === "vercel"
+    ? await createHonoVercelServer()
+    : await createHonoNodeServer({ port: env.SERVER_PORT });
+```
+
+## Build Process
+
+All platforms use the same build command:
+
+```bash
+npm run build
+```
+
+The build process:
+
+1. Bundles client-side assets with Vite
+2. Bundles server code with the platform-specific preset
+3. Optimizes and minifies code for production
+4. Generates platform-specific configuration files
+
+## Next Steps
+
+Choose your deployment platform to learn more:
+
+<CardGroup cols={3}>
+  <Card title="Node.js Setup" icon="server" href="/deployment/node">
+    Traditional server deployment
+  </Card>
+  
+  <Card title="Vercel Setup" icon="bolt" href="/deployment/vercel">
+    Serverless deployment on Vercel
+  </Card>
+  
+  <Card title="Netlify Setup" icon="cloud" href="/deployment/netlify">
+    Serverless deployment on Netlify
+  </Card>
+</CardGroup>

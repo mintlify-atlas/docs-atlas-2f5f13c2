@@ -1,0 +1,451 @@
+---
+title: Disposal
+description: Resource cleanup and the disposal pattern in Resolid DI
+---
+
+# Disposal
+
+Resolid provides a built-in disposal pattern for cleaning up resources like database connections, file handles, and other stateful services when they're no longer needed.
+
+## The Disposable Interface
+
+Services can implement the `Disposable` interface to provide cleanup logic:
+
+```typescript
+export interface Disposable {
+  dispose: () => Promise<void> | void;
+}
+```
+
+The `dispose` method can be either synchronous or asynchronous, giving you flexibility in how you clean up resources.
+
+## Implementing Disposable
+
+### Asynchronous Disposal
+
+Most cleanup operations are asynchronous:
+
+```typescript
+class DatabaseService implements Disposable {
+  private pool: ConnectionPool | null = null;
+  
+  async connect() {
+    this.pool = await createConnectionPool({
+      host: 'localhost',
+      port: 5432
+    });
+  }
+  
+  async query(sql: string) {
+    if (!this.pool) throw new Error('Not connected');
+    return this.pool.query(sql);
+  }
+  
+  async dispose() {
+    if (this.pool) {
+      await this.pool.close();
+      this.pool = null;
+      console.log('Database connection closed');
+    }
+  }
+}
+```
+
+### Synchronous Disposal
+
+Simple cleanup can be synchronous:
+
+```typescript
+class FileLogger implements Disposable {
+  private buffer: string[] = [];
+  
+  log(message: string) {
+    this.buffer.push(message);
+  }
+  
+  dispose() {
+    // Flush buffer synchronously
+    if (this.buffer.length > 0) {
+      console.log('Flushing logs:', this.buffer.join('\n'));
+      this.buffer = [];
+    }
+  }
+}
+```
+
+## Container Disposal
+
+The `Container` class implements `Disposable` and handles disposal of all singleton services:
+
+```typescript
+const container = new Container();
+
+container.add({
+  token: DatabaseService,
+  factory: () => new DatabaseService()
+});
+
+const db = container.get(DatabaseService);
+await db.connect();
+
+// Clean up all resources
+await container.dispose();
+```
+
+### How Container.dispose() Works
+
+The container's disposal process:
+
+1. Iterates through all singleton instances
+2. Checks if each instance has a `dispose` method
+3. Calls `dispose()` on each disposable instance
+4. Collects any errors that occur
+5. Clears the singleton cache
+6. Throws an aggregated error if any disposals failed
+
+```typescript
+// From container/index.ts:82-105
+async dispose(): Promise<void> {
+  let errorCount = 0;
+  let errorMsg = "";
+
+  for (const [token, instance] of this._singletons) {
+    if (typeof (instance as Disposable).dispose === "function") {
+      try {
+        await (instance as Disposable).dispose();
+      } catch (err) {
+        errorCount++;
+        errorMsg += `${toString(token)}: ${err instanceof Error ? err.message : err}; `;
+      }
+    }
+  }
+
+  this._singletons.clear();
+
+  if (errorCount > 0) {
+    throw new Error(`Failed to dispose ${errorCount} provider(s):\n${errorMsg.slice(0, -2)}`);
+  }
+}
+```
+
+<Note>
+Only **singleton** instances are disposed by the container. Transient instances are not tracked and must be cleaned up manually if needed.
+</Note>
+
+## Error Handling
+
+### Disposal Errors
+
+If a service fails to dispose, the container continues disposing other services and throws an aggregated error at the end:
+
+```typescript
+class FailingService implements Disposable {
+  async dispose() {
+    throw new Error('Disposal failed');
+  }
+}
+
+class WorkingService implements Disposable {
+  disposed = false;
+  
+  async dispose() {
+    this.disposed = true;
+  }
+}
+
+container.add({
+  token: FailingService,
+  factory: () => new FailingService()
+});
+
+container.add({
+  token: WorkingService,
+  factory: () => new WorkingService()
+});
+
+container.get(FailingService);
+const working = container.get(WorkingService);
+
+try {
+  await container.dispose();
+} catch (error) {
+  console.log(error.message);
+  // "Failed to dispose 1 provider(s):
+  // FailingService: Disposal failed"
+  
+  console.log(working.disposed); // true - still disposed
+}
+```
+
+### Graceful Degradation
+
+Implement defensive disposal logic:
+
+```typescript
+class RobustService implements Disposable {
+  private resources: Resource[] = [];
+  
+  async dispose() {
+    const errors: Error[] = [];
+    
+    for (const resource of this.resources) {
+      try {
+        await resource.cleanup();
+      } catch (err) {
+        errors.push(err as Error);
+      }
+    }
+    
+    this.resources = [];
+    
+    if (errors.length > 0) {
+      throw new Error(
+        `Failed to cleanup ${errors.length} resource(s): ${errors.map(e => e.message).join(', ')}`
+      );
+    }
+  }
+}
+```
+
+## Application-Level Disposal
+
+The `App` class from `@resolid/core` handles disposal of both the container and the event emitter:
+
+```typescript
+// From core/index.ts:143-147
+async dispose(): Promise<void> {
+  await this._container.dispose();
+  this.emitter.offAll();
+}
+```
+
+### Using with createApp
+
+```typescript
+import { createApp } from '@resolid/core';
+
+const app = await createApp({
+  name: 'my-app',
+  providers: [
+    {
+      token: DatabaseService,
+      factory: () => new DatabaseService()
+    }
+  ]
+});
+
+await app.run();
+
+// Later, when shutting down
+await app.dispose();
+```
+
+### Process Signal Handling
+
+```typescript
+const app = await createApp({ name: 'my-app' });
+await app.run();
+
+// Handle graceful shutdown
+process.on('SIGTERM', async () => {
+  console.log('SIGTERM received, shutting down gracefully');
+  await app.dispose();
+  process.exit(0);
+});
+
+process.on('SIGINT', async () => {
+  console.log('SIGINT received, shutting down gracefully');
+  await app.dispose();
+  process.exit(0);
+});
+```
+
+## Common Cleanup Patterns
+
+### Database Connections
+
+```typescript
+class DatabaseService implements Disposable {
+  private connection?: Connection;
+  
+  async connect() {
+    this.connection = await createConnection();
+  }
+  
+  async dispose() {
+    if (this.connection) {
+      await this.connection.end();
+      this.connection = undefined;
+    }
+  }
+}
+```
+
+### File Handles
+
+```typescript
+import { open, FileHandle } from 'fs/promises';
+
+class FileService implements Disposable {
+  private handles: FileHandle[] = [];
+  
+  async openFile(path: string) {
+    const handle = await open(path, 'r');
+    this.handles.push(handle);
+    return handle;
+  }
+  
+  async dispose() {
+    await Promise.all(
+      this.handles.map(handle => handle.close())
+    );
+    this.handles = [];
+  }
+}
+```
+
+### Timers and Intervals
+
+```typescript
+class SchedulerService implements Disposable {
+  private intervals: NodeJS.Timeout[] = [];
+  private timeouts: NodeJS.Timeout[] = [];
+  
+  setInterval(callback: () => void, ms: number) {
+    const id = setInterval(callback, ms);
+    this.intervals.push(id);
+    return id;
+  }
+  
+  setTimeout(callback: () => void, ms: number) {
+    const id = setTimeout(callback, ms);
+    this.timeouts.push(id);
+    return id;
+  }
+  
+  dispose() {
+    this.intervals.forEach(id => clearInterval(id));
+    this.timeouts.forEach(id => clearTimeout(id));
+    this.intervals = [];
+    this.timeouts = [];
+  }
+}
+```
+
+### Event Listeners
+
+```typescript
+import { EventEmitter } from 'events';
+
+class EventService implements Disposable {
+  private listeners: Array<{
+    emitter: EventEmitter;
+    event: string;
+    handler: (...args: any[]) => void;
+  }> = [];
+  
+  on(emitter: EventEmitter, event: string, handler: (...args: any[]) => void) {
+    emitter.on(event, handler);
+    this.listeners.push({ emitter, event, handler });
+  }
+  
+  dispose() {
+    for (const { emitter, event, handler } of this.listeners) {
+      emitter.off(event, handler);
+    }
+    this.listeners = [];
+  }
+}
+```
+
+### HTTP Servers
+
+```typescript
+import { createServer, Server } from 'http';
+
+class HttpServerService implements Disposable {
+  private server?: Server;
+  
+  async start(port: number) {
+    this.server = createServer();
+    
+    await new Promise<void>((resolve) => {
+      this.server!.listen(port, resolve);
+    });
+  }
+  
+  async dispose() {
+    if (this.server) {
+      await new Promise<void>((resolve, reject) => {
+        this.server!.close((err) => {
+          if (err) reject(err);
+          else resolve();
+        });
+      });
+      this.server = undefined;
+    }
+  }
+}
+```
+
+## Testing Disposal
+
+### Verifying Cleanup
+
+```typescript
+import { describe, it, expect, beforeEach } from 'vitest';
+
+describe('DatabaseService disposal', () => {
+  let container: Container;
+  
+  beforeEach(() => {
+    container = new Container();
+  });
+  
+  it('should close connection on disposal', async () => {
+    container.add({
+      token: DatabaseService,
+      factory: () => new DatabaseService()
+    });
+    
+    const db = container.get(DatabaseService);
+    await db.connect();
+    
+    expect(db.isConnected()).toBe(true);
+    
+    await container.dispose();
+    
+    expect(db.isConnected()).toBe(false);
+  });
+  
+  it('should handle disposal errors gracefully', async () => {
+    container.add({
+      token: FailingService,
+      factory: () => new FailingService()
+    });
+    
+    container.get(FailingService);
+    
+    await expect(container.dispose()).rejects.toThrow(
+      'Failed to dispose 1 provider(s)'
+    );
+  });
+});
+```
+
+## Best Practices
+
+1. **Always implement Disposable** for services that manage resources
+2. **Make disposal idempotent** - safe to call multiple times
+3. **Clear references** after disposal to enable garbage collection
+4. **Don't throw** from dispose unless absolutely necessary
+5. **Dispose in reverse order** of dependencies when doing manual cleanup
+6. **Use try-finally** to ensure cleanup happens even if errors occur
+7. **Log disposal actions** for debugging and monitoring
+8. **Test disposal** as part of your service tests
+
+## Related Documentation
+
+- [Scopes](/advanced/scopes) - Only singletons are automatically disposed
+- [Providers](/advanced/providers) - How to register disposable services
+- [Application Lifecycle](/guides/application-lifecycle) - When to dispose resources

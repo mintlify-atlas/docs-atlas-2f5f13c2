@@ -1,0 +1,334 @@
+---
+title: 'Database Setup'
+description: 'Set up database connections with Drizzle ORM'
+---
+
+## Overview
+
+The Resolid Framework provides database integration through Drizzle ORM with support for multiple database providers. This guide covers setting up database connections and using the database service.
+
+## Installation
+
+Install the database package for your preferred database:
+
+```bash
+# MySQL
+npm install @resolid/app-db-mysql drizzle-orm mysql2
+
+# PostgreSQL (coming soon)
+npm install @resolid/app-db-postgres drizzle-orm pg
+```
+
+## Creating a Database Extension
+
+Use the appropriate function to create a database extension for your application:
+
+### MySQL
+
+```typescript
+import { createMySQLDatabaseExtension } from '@resolid/app-db-mysql';
+import { createApp } from '@resolid/core';
+
+const app = createApp({
+  extensions: [
+    createMySQLDatabaseExtension({
+      connection: {
+        uri: 'mysql://user:password@localhost:3306/mydb'
+      }
+    })
+  ]
+});
+
+await app.bootstrap();
+```
+
+## Configuration
+
+### Single Connection
+
+Configure a single database connection:
+
+```typescript
+createMySQLDatabaseExtension({
+  connection: {
+    uri: 'mysql://user:password@localhost:3306/mydb',
+    // Additional MySQL options
+    charset: 'utf8mb4',
+    timezone: '+00:00'
+  },
+  mode: 'default', // or 'planetscale'
+  drizzle: {
+    // Drizzle configuration
+    schema: mySchema
+  }
+})
+```
+
+### Multiple Connections
+
+Configure multiple named database connections:
+
+```typescript
+createMySQLDatabaseExtension({
+  connections: [
+    {
+      name: 'main',
+      config: {
+        uri: 'mysql://user:password@localhost:3306/main'
+      }
+    },
+    {
+      name: 'analytics',
+      config: {
+        uri: 'mysql://user:password@localhost:3306/analytics'
+      }
+    }
+  ]
+})
+```
+
+## Using the Database Service
+
+Inject the `DatabaseService` to access database connections:
+
+```typescript
+import { DatabaseService } from '@resolid/app-db';
+import { inject } from '@resolid/core';
+
+class UserService {
+  private db = inject(DatabaseService).get();
+
+  async getUsers() {
+    return this.db.select().from(users);
+  }
+
+  async createUser(data: NewUser) {
+    return this.db.insert(users).values(data);
+  }
+}
+```
+
+### Accessing Named Connections
+
+```typescript
+class AnalyticsService {
+  private db = inject(DatabaseService);
+  private mainDb = this.db.get('main');
+  private analyticsDb = this.db.get('analytics');
+
+  async trackEvent(event: Event) {
+    await this.analyticsDb.insert(events).values(event);
+  }
+}
+```
+
+## Defining Database Schema
+
+Use the `createDefineTable` helper to create table definitions with a prefix:
+
+```typescript
+import { createDefineTable } from '@resolid/app-db-mysql';
+import { int, varchar, timestamp } from 'drizzle-orm/mysql-core';
+
+const defineTable = createDefineTable('app_');
+
+export const users = defineTable('users', {
+  id: int('id').primaryKey().autoincrement(),
+  name: varchar('name', { length: 255 }).notNull(),
+  email: varchar('email', { length: 255 }).notNull().unique(),
+  createdAt: timestamp('created_at').defaultNow(),
+  updatedAt: timestamp('updated_at').defaultNow().onUpdateNow()
+});
+
+export const posts = defineTable('posts', {
+  id: int('id').primaryKey().autoincrement(),
+  userId: int('user_id').notNull().references(() => users.id),
+  title: varchar('title', { length: 255 }).notNull(),
+  content: varchar('content', { length: 5000 }),
+  createdAt: timestamp('created_at').defaultNow()
+});
+```
+
+## Repository Pattern
+
+Extend the `Repository` base class for organized data access:
+
+```typescript
+import { Repository } from '@resolid/app-db-mysql';
+import { eq } from 'drizzle-orm';
+import { users } from './schema';
+
+export class UserRepository extends Repository {
+  async findById(id: number) {
+    return this.db.select().from(users).where(eq(users.id, id)).limit(1);
+  }
+
+  async findByEmail(email: string) {
+    return this.db.select().from(users).where(eq(users.email, email)).limit(1);
+  }
+
+  async create(data: NewUser) {
+    return this.db.insert(users).values(data);
+  }
+
+  async update(id: number, data: Partial<User>) {
+    return this.db.update(users).set(data).where(eq(users.id, id));
+  }
+
+  async delete(id: number) {
+    return this.db.delete(users).where(eq(users.id, id));
+  }
+}
+```
+
+Register the repository as a provider:
+
+```typescript
+import { createApp } from '@resolid/core';
+
+const app = createApp({
+  providers: [
+    UserRepository
+  ],
+  extensions: [
+    createMySQLDatabaseExtension({ /* ... */ })
+  ]
+});
+```
+
+## Database Migrations
+
+Use Drizzle Kit for database migrations:
+
+1. Install Drizzle Kit:
+
+```bash
+npm install -D drizzle-kit
+```
+
+2. Create a `drizzle.config.ts`:
+
+```typescript
+import { defineConfig } from 'drizzle-kit';
+
+export default defineConfig({
+  schema: './src/db/schema.ts',
+  out: './drizzle',
+  dialect: 'mysql',
+  dbCredentials: {
+    url: process.env.DATABASE_URL!
+  }
+});
+```
+
+3. Generate and run migrations:
+
+```bash
+# Generate migration
+npx drizzle-kit generate
+
+# Run migration
+npx drizzle-kit migrate
+```
+
+## Connection Pooling
+
+The database service uses connection pooling by default. You can customize pool settings:
+
+```typescript
+createMySQLDatabaseExtension({
+  connection: {
+    uri: 'mysql://user:password@localhost:3306/mydb',
+    connectionLimit: 10,
+    queueLimit: 0,
+    waitForConnections: true
+  }
+})
+```
+
+## Connection Enhancer
+
+Use the `enhancer` option to customize the connection pool:
+
+```typescript
+import mysql from 'mysql2';
+
+createMySQLDatabaseExtension({
+  connection: {
+    uri: 'mysql://user:password@localhost:3306/mydb'
+  },
+  enhancer: (pool) => {
+    // Add event listeners or modify the pool
+    pool.on('connection', (connection) => {
+      console.log('New database connection established');
+    });
+    
+    return pool; // Return the pool or a modified version
+  }
+})
+```
+
+## Cleanup
+
+The database service automatically closes connections when the application is disposed:
+
+```typescript
+await app.dispose(); // Closes all database connections
+```
+
+## Complete Example
+
+```typescript
+import { createApp } from '@resolid/core';
+import { createMySQLDatabaseExtension, Repository, createDefineTable } from '@resolid/app-db-mysql';
+import { int, varchar, timestamp } from 'drizzle-orm/mysql-core';
+import { eq } from 'drizzle-orm';
+
+// Define schema
+const defineTable = createDefineTable('app_');
+
+const users = defineTable('users', {
+  id: int('id').primaryKey().autoincrement(),
+  name: varchar('name', { length: 255 }).notNull(),
+  email: varchar('email', { length: 255 }).notNull().unique(),
+  createdAt: timestamp('created_at').defaultNow()
+});
+
+// Create repository
+class UserRepository extends Repository {
+  async findAll() {
+    return this.db.select().from(users);
+  }
+
+  async create(data: { name: string; email: string }) {
+    return this.db.insert(users).values(data);
+  }
+}
+
+// Set up application
+const app = createApp({
+  providers: [UserRepository],
+  extensions: [
+    createMySQLDatabaseExtension({
+      connection: {
+        uri: process.env.DATABASE_URL!
+      },
+      drizzle: {
+        schema: { users }
+      }
+    })
+  ]
+});
+
+await app.bootstrap();
+
+// Use the repository
+const userRepo = app.get(UserRepository);
+const allUsers = await userRepo.findAll();
+
+await app.dispose();
+```
+
+## Source Code
+
+Location: `packages/app-db-mysql/src/index.ts`

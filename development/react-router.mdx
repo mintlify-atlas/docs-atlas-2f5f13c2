@@ -1,0 +1,291 @@
+---
+title: React Router Integration
+description: Configure React Router in your Resolid application
+---
+
+Resolid is built on top of [React Router](https://reactrouter.com/), providing a full-stack React framework with file-based routing, server-side rendering, and more.
+
+## Configuration
+
+React Router is configured through the `reactRouterConfig` option in `defineDevConfig`:
+
+```typescript
+import { defineDevConfig } from "@resolid/dev";
+
+export const { vitePluginOptions, reactRouterConfig } = defineDevConfig({
+  appDirectory: "src",
+  reactRouterConfig: {
+    // React Router configuration options
+  },
+});
+```
+
+## Configuration Options
+
+The `reactRouterConfig` accepts most React Router configuration options with a few managed fields:
+
+```typescript
+type ReactRouterConfig = Omit<
+  Config,
+  "appDirectory" | "ssr" | "serverModuleFormat" | "future"
+> & {
+  future?: Omit<
+    Config["future"],
+    "v8_middleware" | "v8_splitRouteModules" | "v8_viteEnvironmentApi"
+  >;
+};
+```
+
+### Managed Options
+
+Resolid automatically manages these options for optimal configuration:
+
+- `appDirectory` - Set via the top-level `appDirectory` option
+- `ssr` - Always `true`
+- `serverModuleFormat` - Always `"esm"`
+- `future.v8_middleware` - Always `true`
+- `future.v8_splitRouteModules` - Always `true`
+- `future.v8_viteEnvironmentApi` - Always `true`
+
+### Common Options
+
+#### Server Bundles
+
+Split your server build into multiple bundles based on route characteristics:
+
+```typescript
+export const { reactRouterConfig } = defineDevConfig({
+  reactRouterConfig: {
+    serverBundles: ({ branch }) => {
+      // Create separate bundles for admin and site routes
+      return branch.some((route) => route.id.startsWith("portals/admin"))
+        ? "admin"
+        : "site";
+    },
+  },
+});
+```
+
+This enables:
+- Faster cold starts by loading only necessary code
+- Better code splitting for different application sections
+- Optimized bundle sizes
+
+#### Build Directory
+
+Customize the build output directory:
+
+```typescript
+export const { reactRouterConfig } = defineDevConfig({
+  reactRouterConfig: {
+    buildDirectory: "dist",
+  },
+});
+```
+
+#### Basename
+
+Set a base path for all routes:
+
+```typescript
+export const { reactRouterConfig } = defineDevConfig({
+  reactRouterConfig: {
+    basename: "/app",
+  },
+});
+```
+
+#### Routes
+
+Define custom routes programmatically:
+
+```typescript
+import { flexRoutes } from "@resolid/dev/routes";
+
+export const { reactRouterConfig } = defineDevConfig({
+  reactRouterConfig: {
+    async routes() {
+      return await flexRoutes({
+        routesDirectory: "routes",
+        ignoredRouteFiles: ["**/*.test.ts"],
+      });
+    },
+  },
+});
+```
+
+See [Routing](/development/routing) for more details on route configuration.
+
+#### Prerender
+
+Enable static pre-rendering for specific routes:
+
+```typescript
+export const { reactRouterConfig } = defineDevConfig({
+  reactRouterConfig: {
+    async prerender() {
+      return ["/", "/about", "/contact"];
+    },
+  },
+});
+```
+
+#### Server Build File
+
+Customize the server build output filename:
+
+```typescript
+export const { reactRouterConfig } = defineDevConfig({
+  reactRouterConfig: {
+    serverBuildFile: "server.js",
+  },
+});
+```
+
+## Future Flags
+
+Resolid supports React Router's future flags for gradual adoption of new features:
+
+```typescript
+export const { reactRouterConfig } = defineDevConfig({
+  reactRouterConfig: {
+    future: {
+      unstable_optimizeDeps: true,
+      unstable_lazyRouteDiscovery: true,
+      unstable_singleFetch: true,
+    },
+  },
+});
+```
+
+### Available Flags
+
+- `unstable_optimizeDeps` - Optimize dependency pre-bundling
+- `unstable_lazyRouteDiscovery` - Enable progressive route loading
+- `unstable_singleFetch` - Combine multiple loader calls into one request
+
+<Note>
+  Resolid automatically enables `v8_middleware`, `v8_splitRouteModules`, and `v8_viteEnvironmentApi` flags. These cannot be overridden.
+</Note>
+
+## Presets
+
+Resolid automatically applies platform-specific presets based on your `platform` configuration:
+
+```typescript
+export const { reactRouterConfig } = defineDevConfig({
+  platform: "vercel",  // Applies Vercel preset
+  nodeVersion: 24,
+});
+```
+
+The presets configure:
+- Build output structure for the platform
+- Server adapter settings
+- Deployment-specific optimizations
+
+### Custom Presets
+
+You can add additional presets:
+
+```typescript
+import { myCustomPreset } from "./presets/custom";
+
+export const { reactRouterConfig } = defineDevConfig({
+  reactRouterConfig: {
+    presets: [myCustomPreset()],
+  },
+});
+```
+
+Resolid will apply both your custom presets and the platform preset.
+
+## Complete Example
+
+Here's a comprehensive configuration example:
+
+```typescript title="resolid.config.ts"
+import { defineDevConfig } from "@resolid/dev";
+import { flexRoutes } from "@resolid/dev/routes";
+import { env } from "node:process";
+
+export const { vitePluginOptions, reactRouterConfig } = defineDevConfig({
+  appDirectory: "src",
+  nodeVersion: 24,
+  platform: env.VERCEL == 1 ? "vercel" : "node",
+  
+  reactRouterConfig: {
+    // Build configuration
+    buildDirectory: "build",
+    basename: "/",
+    
+    // Server bundles for code splitting
+    serverBundles: ({ branch }) =>
+      branch.some((route) => route.id.startsWith("admin"))
+        ? "admin"
+        : "site",
+    
+    // Route configuration
+    async routes() {
+      return await flexRoutes({
+        routesDirectory: "routes",
+        ignoredRouteFiles: ["**/*.test.{ts,tsx}", "**/*.stories.tsx"],
+      });
+    },
+    
+    // Pre-rendering
+    async prerender() {
+      return ["/", "/about"];
+    },
+    
+    // Future flags
+    future: {
+      unstable_optimizeDeps: true,
+      unstable_singleFetch: true,
+    },
+  },
+});
+```
+
+## Using the Configuration
+
+Export the `reactRouterConfig` for use in your `react-router.config.ts`:
+
+```typescript title="react-router.config.ts"
+import { reactRouterConfig } from "./resolid.config";
+
+export default reactRouterConfig;
+```
+
+This makes it available to React Router's build tools and development server.
+
+## Utilities
+
+Resolid provides utilities to enhance React Router functionality:
+
+### Merge Meta
+
+Merge meta tags from parent routes:
+
+```typescript
+import { mergeMeta } from "@resolid/dev/router";
+import type { MetaFunction } from "react-router";
+
+export const meta: MetaFunction = mergeMeta(({ data }) => [
+  { title: data.title },
+  { name: "description", content: data.description },
+]);
+```
+
+The `mergeMeta` utility:
+- Inherits meta tags from parent routes
+- Overrides duplicate tags with child values
+- Joins title tags with " - " separator (customizable)
+
+```typescript
+// Custom title separator
+export const meta: MetaFunction = mergeMeta(
+  ({ data }) => [{ title: data.title }],
+  " | " // Use "|" instead of "-"
+);
+```

@@ -1,0 +1,269 @@
+---
+title: 'Router'
+description: 'Router utilities for React Router integration'
+---
+
+## Overview
+
+The Resolid Framework provides utilities for working with React Router, including meta tag merging for hierarchical page metadata.
+
+## Function: mergeMeta()
+
+Merges meta tags from parent routes with child routes, eliminating duplicates and combining titles.
+
+```typescript
+function mergeMeta(
+  metaFn: (arg: MetaArgs) => MetaDescriptor[],
+  titleJoin?: string
+): (arg: MetaArgs) => MetaDescriptor[]
+```
+
+<ParamField path="metaFn" type="(arg: MetaArgs) => MetaDescriptor[]" required>
+  Function that returns meta descriptors for the current route
+</ParamField>
+
+<ParamField path="titleJoin" type="string" default="' - '">
+  String to join multiple title segments
+</ParamField>
+
+<ResponseField name="return" type="(arg: MetaArgs) => MetaDescriptor[]">
+  A function that merges meta tags from all matched routes
+</ResponseField>
+
+## How It Works
+
+The `mergeMeta` function:
+
+1. Collects meta tags from all parent routes
+2. Merges them with the current route's meta tags
+3. Removes duplicates (matching by `name`, `property`, or `title`)
+4. Combines all title segments into a single title tag
+5. Returns the merged meta descriptors
+
+## Basic Usage
+
+```typescript
+import { mergeMeta } from '@resolid/dev/router';
+import type { Route } from 'react-router';
+
+export default {
+  meta: mergeMeta(() => [
+    { title: 'Home' },
+    { name: 'description', content: 'Welcome to our site' }
+  ])
+} satisfies Route.MetaFunction;
+```
+
+## Hierarchical Titles
+
+When routes are nested, titles are automatically combined:
+
+```typescript
+// Root route: app/root.tsx
+export const meta = mergeMeta(() => [
+  { title: 'My App' }
+]);
+
+// Parent route: app/routes/blog.tsx
+export const meta = mergeMeta(() => [
+  { title: 'Blog' }
+]);
+
+// Child route: app/routes/blog.post.$id.tsx
+export const meta = mergeMeta(({ data }) => [
+  { title: data.post.title }
+]);
+
+// Result for child route:
+// <title>Understanding React - Blog - My App</title>
+```
+
+## Custom Title Separator
+
+Change the title separator:
+
+```typescript
+export const meta = mergeMeta(
+  () => [
+    { title: 'Products' }
+  ],
+  ' | ' // Use pipe instead of dash
+);
+
+// Result: Products | My App
+```
+
+## Meta Tag Deduplication
+
+Child route meta tags override parent meta tags with the same name or property:
+
+```typescript
+// Root route
+export const meta = mergeMeta(() => [
+  { name: 'description', content: 'Default description' },
+  { property: 'og:image', content: '/default-image.jpg' }
+]);
+
+// Child route
+export const meta = mergeMeta(() => [
+  { name: 'description', content: 'Specific page description' },
+  { property: 'og:image', content: '/page-image.jpg' }
+]);
+
+// Result uses child route values:
+// <meta name="description" content="Specific page description" />
+// <meta property="og:image" content="/page-image.jpg" />
+```
+
+## Dynamic Meta Tags
+
+Use loader data to generate dynamic meta tags:
+
+```typescript
+import { mergeMeta } from '@resolid/dev/router';
+import type { Route } from 'react-router';
+
+export const meta = mergeMeta(({ data }) => [
+  { title: data.post.title },
+  { name: 'description', content: data.post.excerpt },
+  { property: 'og:title', content: data.post.title },
+  { property: 'og:description', content: data.post.excerpt },
+  { property: 'og:image', content: data.post.coverImage },
+  { property: 'og:type', content: 'article' },
+  { property: 'article:published_time', content: data.post.publishedAt },
+  { property: 'article:author', content: data.post.author.name }
+]) satisfies Route.MetaFunction;
+```
+
+## Route Matches
+
+Access parent route data through `matches`:
+
+```typescript
+export const meta = mergeMeta(({ data, matches }) => {
+  // Get parent route data
+  const parentData = matches[matches.length - 2]?.data;
+  
+  return [
+    { title: `${data.product.name} - ${parentData?.category.name}` },
+    { name: 'description', content: data.product.description }
+  ];
+});
+```
+
+## Type Definitions
+
+### MetaArgs
+
+```typescript
+interface MetaArgs<
+  Loader extends LoaderFunction | unknown = unknown,
+  MatchLoaders extends Record<string, LoaderFunction> | unknown = unknown
+> {
+  data: Loader extends LoaderFunction ? SerializeFrom<Loader> : unknown;
+  params: Params;
+  location: Location;
+  matches: RouteMatch<MatchLoaders>[];
+}
+```
+
+### MetaDescriptor
+
+```typescript
+type MetaDescriptor =
+  | { charSet: 'utf-8' }
+  | { title: string }
+  | { name: string; content: string }
+  | { property: string; content: string }
+  | { httpEquiv: string; content: string }
+  | { 'script:ld+json': object }
+  | { tagName: string; [key: string]: string };
+```
+
+## Complete Example
+
+```typescript
+// app/root.tsx
+import { mergeMeta } from '@resolid/dev/router';
+import type { Route } from 'react-router';
+
+export const meta = mergeMeta(() => [
+  { charSet: 'utf-8' },
+  { title: 'My App' },
+  { name: 'viewport', content: 'width=device-width,initial-scale=1' },
+  { name: 'description', content: 'Welcome to My App' },
+  { property: 'og:site_name', content: 'My App' }
+]) satisfies Route.MetaFunction;
+
+// app/routes/blog.tsx
+export const meta = mergeMeta(() => [
+  { title: 'Blog' },
+  { name: 'description', content: 'Read our latest articles' },
+  { property: 'og:type', content: 'website' }
+]) satisfies Route.MetaFunction;
+
+// app/routes/blog.post.$id.tsx
+export const loader = async ({ params }) => {
+  const post = await getPost(params.id);
+  return { post };
+};
+
+export const meta = mergeMeta(({ data }) => [
+  { title: data.post.title },
+  { name: 'description', content: data.post.excerpt },
+  { property: 'og:title', content: data.post.title },
+  { property: 'og:description', content: data.post.excerpt },
+  { property: 'og:image', content: data.post.coverImage },
+  { property: 'og:type', content: 'article' },
+  { property: 'article:published_time', content: data.post.publishedAt },
+  { property: 'article:author', content: data.post.author.name },
+  {
+    'script:ld+json': {
+      '@context': 'https://schema.org',
+      '@type': 'Article',
+      headline: data.post.title,
+      description: data.post.excerpt,
+      image: data.post.coverImage,
+      datePublished: data.post.publishedAt,
+      author: {
+        '@type': 'Person',
+        name: data.post.author.name
+      }
+    }
+  }
+]) satisfies Route.MetaFunction;
+
+// Resulting HTML for blog post:
+// <meta charset="utf-8" />
+// <title>Understanding React - Blog - My App</title>
+// <meta name="viewport" content="width=device-width,initial-scale=1" />
+// <meta name="description" content="Learn the fundamentals..." />
+// <meta property="og:site_name" content="My App" />
+// <meta property="og:title" content="Understanding React" />
+// <meta property="og:description" content="Learn the fundamentals..." />
+// <meta property="og:image" content="/posts/react-cover.jpg" />
+// <meta property="og:type" content="article" />
+// <meta property="article:published_time" content="2024-01-15" />
+// <meta property="article:author" content="John Doe" />
+// <script type="application/ld+json">{...}</script>
+```
+
+## Best Practices
+
+1. **Use mergeMeta consistently**: Apply `mergeMeta` to all routes for consistent meta tag handling
+
+2. **Define base meta in root**: Set default meta tags in the root route
+
+3. **Override selectively**: Only override specific meta tags in child routes
+
+4. **Include OpenGraph tags**: Add OpenGraph tags for better social sharing
+
+5. **Add structured data**: Use `script:ld+json` for SEO-friendly structured data
+
+6. **Keep titles concise**: Combine titles should stay under 60 characters
+
+7. **Unique descriptions**: Provide unique descriptions for each page
+
+## Source Code
+
+Location: `packages/dev/src/router/utils/merge-meta.ts`

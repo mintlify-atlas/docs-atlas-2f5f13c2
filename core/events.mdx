@@ -1,0 +1,432 @@
+---
+title: Events
+description: Learn about the event system in Resolid Framework using the Emitter class
+---
+
+Resolid Framework includes a lightweight, type-safe event system powered by the `@resolid/event` package. The event system enables loose coupling between extensions and the application through the `Emitter` class.
+
+## The Emitter Class
+
+Every Resolid application has an `Emitter` instance accessible via `app.emitter` or `context.emitter`:
+
+```typescript
+export class Emitter {
+  on<Args extends unknown[]>(event: string, callback: Callback<Args>): () => void;
+  off<Args extends unknown[]>(event: string, callback: Callback<Args>): void;
+  offAll(event?: string): void;
+  once<Args extends unknown[]>(event: string, callback: Callback<Args>): void;
+  emit<Args extends unknown[]>(event: string, ...args: Args): void;
+  emitAsync<Args extends unknown[]>(event: string, ...args: Args): void;
+}
+
+type Callback<Args extends unknown[] = unknown[]> = (...args: Args) => void;
+```
+
+## Listening to Events
+
+### Basic Event Listener
+
+Use `on()` to register an event listener:
+
+```typescript
+import { createApp } from '@resolid/core';
+
+const app = await createApp({ name: 'MyApp' });
+
+app.emitter.on('user:created', (userId: string) => {
+  console.log(`User created: ${userId}`);
+});
+
+app.emitter.emit('user:created', 'user-123');
+// Logs: "User created: user-123"
+```
+
+### One-Time Listeners
+
+Use `once()` for listeners that should only fire once:
+
+```typescript
+app.emitter.once('app:ready', () => {
+  console.log('App is ready!');
+});
+
+await app.run();
+// Logs: "App is ready!"
+
+app.emitter.emit('app:ready');
+// No output - listener already removed
+```
+
+### Unsubscribing
+
+The `on()` method returns an unsubscribe function:
+
+```typescript
+const unsubscribe = app.emitter.on('data:changed', () => {
+  console.log('Data changed!');
+});
+
+// Later, when you want to stop listening:
+unsubscribe();
+```
+
+You can also use `off()` to remove a specific listener:
+
+```typescript
+const handler = (data: string) => console.log(data);
+
+app.emitter.on('event', handler);
+
+// Remove specific handler
+app.emitter.off('event', handler);
+```
+
+### Removing All Listeners
+
+Use `offAll()` to remove listeners:
+
+```typescript
+// Remove all listeners for a specific event
+app.emitter.offAll('user:created');
+
+// Remove ALL listeners for ALL events
+app.emitter.offAll();
+```
+
+<Warning>
+`app.dispose()` automatically calls `emitter.offAll()` to clean up all event listeners.
+</Warning>
+
+## Emitting Events
+
+### Synchronous Emission
+
+Use `emit()` to trigger event handlers synchronously:
+
+```typescript
+app.emitter.on('order:placed', (orderId: string, amount: number) => {
+  console.log(`Order ${orderId} placed for $${amount}`);
+});
+
+app.emitter.emit('order:placed', 'order-456', 99.99);
+// Handlers execute immediately
+```
+
+### Asynchronous Emission
+
+Use `emitAsync()` to defer handler execution to the next microtask:
+
+```typescript
+app.emitter.on('log:info', (message: string) => {
+  console.log(message);
+});
+
+console.log('Before emit');
+app.emitter.emitAsync('log:info', 'Async event');
+console.log('After emit');
+
+// Output:
+// Before emit
+// After emit
+// Async event
+```
+
+<Note>
+`emitAsync()` uses `queueMicrotask()` to schedule handlers, which means they execute before the next event loop tick but after the current synchronous code completes.
+</Note>
+
+## Built-in App Events
+
+Resolid applications emit the following built-in events:
+
+### `app:ready`
+
+Emitted when `app.run()` completes and all extension bootstrap functions have executed:
+
+```typescript
+const app = await createApp({
+  name: 'MyApp',
+  extensions: [
+    {
+      name: 'logger',
+      bootstrap: (context) => {
+        context.emitter.on('app:ready', () => {
+          console.log('Application is fully initialized');
+        });
+      },
+    },
+  ],
+});
+
+await app.run();
+// Logs: "Application is fully initialized"
+```
+
+## Using Events in Extensions
+
+Extensions can listen to and emit events through the `AppContext`:
+
+```typescript
+import { type Extension } from '@resolid/core';
+
+const auditExtension: Extension = {
+  name: 'audit',
+  bootstrap: async (context) => {
+    // Listen to custom events
+    context.emitter.on('user:login', (userId: string) => {
+      console.log(`[AUDIT] User ${userId} logged in at ${new Date().toISOString()}`);
+    });
+    
+    context.emitter.on('user:logout', (userId: string) => {
+      console.log(`[AUDIT] User ${userId} logged out at ${new Date().toISOString()}`);
+    });
+    
+    // Listen to app lifecycle events
+    context.emitter.on('app:ready', () => {
+      console.log('[AUDIT] Audit logging initialized');
+    });
+  },
+};
+```
+
+## Inter-Extension Communication
+
+Extensions can communicate with each other through events without direct coupling:
+
+```typescript
+// Authentication extension emits events
+const authExtension: Extension = {
+  name: 'auth',
+  providers: [
+    {
+      token: AUTH_SERVICE,
+      factory: () => {
+        const emitter = inject(EMITTER);
+        
+        return {
+          login: async (username: string, password: string) => {
+            // Login logic
+            const userId = await validateCredentials(username, password);
+            
+            // Emit event for other extensions
+            emitter.emit('user:login', userId, username);
+            
+            return userId;
+          },
+          logout: async (userId: string) => {
+            // Logout logic
+            emitter.emit('user:logout', userId);
+          },
+        };
+      },
+    },
+  ],
+};
+
+// Analytics extension listens to auth events
+const analyticsExtension: Extension = {
+  name: 'analytics',
+  bootstrap: (context) => {
+    context.emitter.on('user:login', (userId: string, username: string) => {
+      // Track login event
+      trackEvent('login', { userId, username, timestamp: Date.now() });
+    });
+    
+    context.emitter.on('user:logout', (userId: string) => {
+      // Track logout event
+      trackEvent('logout', { userId, timestamp: Date.now() });
+    });
+  },
+};
+
+// Notification extension also listens
+const notificationExtension: Extension = {
+  name: 'notifications',
+  bootstrap: (context) => {
+    context.emitter.on('user:login', async (userId: string) => {
+      // Send welcome notification
+      await sendNotification(userId, 'Welcome back!');
+    });
+  },
+};
+```
+
+## Type-Safe Events
+
+Create type-safe event helpers for better developer experience:
+
+```typescript
+type AppEvents = {
+  'user:created': [userId: string, email: string];
+  'user:deleted': [userId: string];
+  'order:placed': [orderId: string, amount: number];
+  'app:ready': [];
+};
+
+class TypedEmitter {
+  constructor(private emitter: Emitter) {}
+  
+  on<K extends keyof AppEvents>(
+    event: K,
+    callback: (...args: AppEvents[K]) => void
+  ): () => void {
+    return this.emitter.on(event, callback);
+  }
+  
+  emit<K extends keyof AppEvents>(
+    event: K,
+    ...args: AppEvents[K]
+  ): void {
+    this.emitter.emit(event, ...args);
+  }
+}
+
+// Usage
+const app = await createApp({ name: 'MyApp' });
+const events = new TypedEmitter(app.emitter);
+
+// Type-safe!
+events.on('user:created', (userId, email) => {
+  console.log(`User ${userId} created with email ${email}`);
+});
+
+events.emit('user:created', 'user-123', 'user@example.com');
+
+// Type error - wrong arguments!
+events.emit('user:created', 'user-123'); // ✗ Missing email argument
+```
+
+## Event Naming Conventions
+
+Follow these conventions for consistent event naming:
+
+<CardGroup cols={2}>
+  <Card title="Use colons for namespacing" icon="colon-sign">
+    `user:created`, `order:placed`, `app:ready`
+  </Card>
+  
+  <Card title="Use past tense for actions" icon="clock">
+    `user:created` (not `user:create`), `data:loaded` (not `data:load`)
+  </Card>
+  
+  <Card title="Use present tense for states" icon="circle-dot">
+    `connection:ready`, `service:available`
+  </Card>
+  
+  <Card title="Be specific" icon="bullseye">
+    `user:password:changed` instead of just `changed`
+  </Card>
+</CardGroup>
+
+## Real-World Example
+
+Here's a complete example showing the event system in action:
+
+```typescript
+import { createApp, inject, type Extension, type Token } from '@resolid/core';
+import { type Emitter } from '@resolid/event';
+
+const EMITTER = Symbol('EMITTER') as Token<Emitter>;
+const USER_SERVICE = Symbol('USER_SERVICE');
+const EMAIL_SERVICE = Symbol('EMAIL_SERVICE');
+
+// User service that emits events
+const userExtension: Extension = {
+  name: 'user',
+  providers: [
+    {
+      token: USER_SERVICE,
+      factory: () => {
+        const emitter = inject(EMITTER);
+        
+        return {
+          createUser: async (email: string, name: string) => {
+            const userId = crypto.randomUUID();
+            
+            // Save user to database...
+            
+            // Emit event
+            emitter.emit('user:created', userId, email, name);
+            
+            return userId;
+          },
+        };
+      },
+    },
+  ],
+};
+
+// Email service that listens to user events
+const emailExtension: Extension = {
+  name: 'email',
+  providers: [
+    {
+      token: EMAIL_SERVICE,
+      factory: () => ({
+        sendWelcome: async (email: string, name: string) => {
+          console.log(`Sending welcome email to ${email}`);
+          // Email sending logic...
+        },
+      }),
+    },
+  ],
+  bootstrap: (context) => {
+    const emailService = context.container.get(EMAIL_SERVICE);
+    
+    context.emitter.on('user:created', async (userId, email, name) => {
+      await emailService.sendWelcome(email, name);
+    });
+  },
+};
+
+// Analytics extension that tracks events
+const analyticsExtension: Extension = {
+  name: 'analytics',
+  bootstrap: (context) => {
+    context.emitter.on('user:created', (userId, email) => {
+      console.log(`[Analytics] New user signup: ${userId}`);
+      // Send to analytics service...
+    });
+  },
+};
+
+const app = await createApp({
+  name: 'UserApp',
+  extensions: [userExtension, emailExtension, analyticsExtension],
+  providers: [
+    { token: EMITTER, factory: () => app.emitter },
+  ],
+  expose: {
+    userService: USER_SERVICE,
+  },
+});
+
+await app.run();
+
+// Create a user - triggers events automatically
+const userId = await app.$.userService.createUser('user@example.com', 'John Doe');
+
+// Output:
+// Sending welcome email to user@example.com
+// [Analytics] New user signup: <userId>
+```
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Don't overuse events">
+    Events are great for decoupling, but for direct service-to-service communication within the same domain, consider using dependency injection instead.
+  </Accordion>
+  
+  <Accordion title="Document your events">
+    Maintain a list of all events your application/extension emits, including their arguments and when they fire.
+  </Accordion>
+  
+  <Accordion title="Clean up listeners">
+    Always remove event listeners when they're no longer needed, especially in transient-scoped services.
+  </Accordion>
+  
+  <Accordion title="Use descriptive event names">
+    Event names should clearly indicate what happened. Use namespacing (colons) to organize related events.
+  </Accordion>
+</AccordionGroup>

@@ -1,0 +1,307 @@
+---
+title: Providers
+description: Deep dive into the Provider interface and dependency registration
+---
+
+# Providers
+
+Providers are the fundamental building blocks of Resolid's dependency injection system. They define how services are created and managed within the container.
+
+## Provider Interface
+
+The `Provider` interface is defined in the core DI system:
+
+```typescript
+export interface Provider<T = unknown> {
+  token: Token<T>;
+  factory: () => T;
+  scope?: Scope;
+}
+```
+
+### Components
+
+**token**: A unique identifier for the dependency. Can be:
+- A Symbol: `Symbol('LogService')`
+- A Class constructor: `LogService`
+- An object with `name` and `prototype` properties
+
+**factory**: A function that creates and returns the service instance. The factory is executed within an injection context, allowing you to use `inject()` to resolve dependencies.
+
+**scope**: Controls the lifetime of the service instance. Defaults to `'singleton'` if not specified. See [Scopes](/advanced/scopes) for details.
+
+## Token Types
+
+Tokens are type-safe identifiers for your dependencies:
+
+```typescript
+export type Token<T = unknown> =
+  | symbol
+  | (new (...args: any[]) => T)
+  | {
+      prototype: T;
+      name: string;
+    };
+```
+
+### Using Symbols as Tokens
+
+Symbols provide unique, collision-free identifiers:
+
+```typescript
+import { Container } from '@resolid/di';
+
+const API_URL = Symbol('API_URL');
+const container = new Container();
+
+container.add({
+  token: API_URL,
+  factory: () => 'https://api.example.com'
+});
+
+const url = container.get(API_URL);
+```
+
+### Using Classes as Tokens
+
+Using the class itself as a token is the most common pattern:
+
+```typescript
+class DatabaseService {
+  async connect() {
+    // Connection logic
+  }
+}
+
+container.add({
+  token: DatabaseService,
+  factory: () => new DatabaseService()
+});
+
+const db = container.get(DatabaseService);
+```
+
+## Factory Functions
+
+Factory functions are executed within an injection context, giving you access to the `inject()` function for dependency resolution.
+
+### Simple Factories
+
+```typescript
+container.add({
+  token: ConfigService,
+  factory: () => new ConfigService()
+});
+```
+
+### Factories with Dependencies
+
+Use `inject()` inside factory functions to resolve dependencies:
+
+```typescript
+import { inject } from '@resolid/di';
+
+class UserService {
+  constructor(
+    private logger: LogService,
+    private db: DatabaseService
+  ) {}
+}
+
+container.add({
+  token: LogService,
+  factory: () => new LogService()
+});
+
+container.add({
+  token: DatabaseService,
+  factory: () => new DatabaseService()
+});
+
+container.add({
+  token: UserService,
+  factory: () => new UserService(
+    inject(LogService),
+    inject(DatabaseService)
+  )
+});
+```
+
+### Factory Context
+
+The factory function runs within an `InjectionContext` that provides access to the container's resolver. This context is managed automatically:
+
+```typescript
+// From container/index.ts:47
+const value = new InjectionContext(this).run(() => provider.factory());
+```
+
+The injection context maintains a stack to detect circular dependencies and provide proper error messages.
+
+## Registering Providers
+
+Use the `Container.add()` method to register providers:
+
+```typescript
+const container = new Container();
+
+container.add({
+  token: LogService,
+  factory: () => new LogService(),
+  scope: 'singleton'
+});
+```
+
+### Multiple Providers
+
+Register multiple providers by calling `add()` multiple times:
+
+```typescript
+container.add({
+  token: LogService,
+  factory: () => new LogService()
+});
+
+container.add({
+  token: CacheService,
+  factory: () => new CacheService()
+});
+```
+
+### Provider Arrays in Extensions
+
+When creating extensions, provide an array of providers:
+
+```typescript
+import { Extension } from '@resolid/core';
+
+export const databaseExtension: Extension = {
+  name: 'database',
+  providers: [
+    {
+      token: DatabaseService,
+      factory: () => new DatabaseService()
+    },
+    {
+      token: MigrationService,
+      factory: () => new MigrationService(inject(DatabaseService))
+    }
+  ]
+};
+```
+
+## Token Resolution
+
+When you call `container.get(token)`, the container follows this resolution process:
+
+1. **Circular dependency check**: Ensures the token isn't already being constructed
+2. **Provider lookup**: Finds the registered provider for the token
+3. **Singleton cache check**: For singleton scope, returns cached instance if available
+4. **Factory execution**: Runs the factory function within an injection context
+5. **Cache storage**: For singleton scope, stores the instance for future use
+
+```typescript
+// From container/index.ts:25-56
+private _resolve<T>(token: Token<T>, optional: boolean): T | undefined {
+  this._checkCircularDependency(token);
+
+  const provider = this._providers.get(token);
+
+  if (provider === undefined) {
+    if (!optional) {
+      throw new Error(`No provider found for ${toString(token)}`);
+    }
+    return undefined;
+  }
+
+  const singleton = provider.scope !== "transient";
+
+  if (singleton && this._singletons.has(token)) {
+    return this._singletons.get(token) as T;
+  }
+
+  this._constructing.push(token);
+
+  try {
+    const value = new InjectionContext(this).run(() => provider.factory());
+
+    if (singleton) {
+      this._singletons.set(token, value);
+    }
+
+    return value as T;
+  } finally {
+    this._constructing.pop();
+  }
+}
+```
+
+## Advanced Factory Patterns
+
+### Configuration-based Factories
+
+```typescript
+const CONFIG_TOKEN = Symbol('Config');
+
+container.add({
+  token: CONFIG_TOKEN,
+  factory: () => ({
+    apiUrl: process.env.API_URL || 'http://localhost:3000',
+    timeout: 5000
+  })
+});
+
+container.add({
+  token: ApiClient,
+  factory: () => {
+    const config = inject(CONFIG_TOKEN);
+    return new ApiClient(config.apiUrl, config.timeout);
+  }
+});
+```
+
+### Conditional Factories
+
+```typescript
+container.add({
+  token: LogService,
+  factory: () => {
+    if (process.env.NODE_ENV === 'production') {
+      return new CloudLogService();
+    }
+    return new ConsoleLogService();
+  }
+});
+```
+
+### Factory Initialization
+
+```typescript
+container.add({
+  token: DatabaseService,
+  factory: () => {
+    const db = new DatabaseService();
+    // Synchronous initialization
+    db.loadConfig();
+    return db;
+  }
+});
+```
+
+<Note>
+For asynchronous initialization, use the bootstrap function in extensions or call initialization methods after retrieving the service from the container.
+</Note>
+
+## Best Practices
+
+1. **Use classes as tokens** when possible for better type inference
+2. **Keep factories simple** - delegate complex logic to the service itself
+3. **Prefer constructor injection** over property injection for better testability
+4. **Use symbols for configuration values** to avoid naming conflicts
+5. **Document your tokens** especially when using symbols or abstract classes
+
+## Related Documentation
+
+- [Scopes](/advanced/scopes) - Control instance lifetime
+- [Circular Dependencies](/advanced/circular-dependencies) - Handle dependency cycles
+- [Disposal](/advanced/disposal) - Clean up resources properly

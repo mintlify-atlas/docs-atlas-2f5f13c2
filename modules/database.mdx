@@ -1,0 +1,714 @@
+---
+title: 'Database'
+description: 'Guide to @resolid/app-db - Integration with Drizzle ORM for database management'
+---
+
+The `@resolid/app-db` package provides database integration for Resolid applications through [Drizzle ORM](https://orm.drizzle.team). It offers a structured approach to database connections, repository patterns, and type-safe queries.
+
+## Installation
+
+```bash
+pnpm add @resolid/app-db
+# or
+npm install @resolid/app-db
+# or
+yarn add @resolid/app-db
+# or
+bun add @resolid/app-db
+```
+
+You'll also need to install Drizzle ORM and a database driver:
+
+```bash
+# For PostgreSQL
+pnpm add drizzle-orm postgres
+pnpm add -D drizzle-kit
+
+# For MySQL
+pnpm add drizzle-orm mysql2
+pnpm add -D drizzle-kit
+
+# For SQLite
+pnpm add drizzle-orm better-sqlite3
+pnpm add -D drizzle-kit @types/better-sqlite3
+```
+
+## Core Concepts
+
+### DatabaseService
+
+The `DatabaseService` class is an abstract base class for creating database service implementations. It manages database connections and provides a unified interface for database operations.
+
+**Source**: See `packages/app-db/src/service/index.ts:12`
+
+```typescript
+abstract class DatabaseService<T, S, C> {
+  protected readonly config: C;
+  protected readonly emitter: Emitter;
+  protected readonly logger?: LogService;
+  protected readonly connections: Map<string, T>;
+
+  constructor(config: C, emitter: Emitter, logger?: LogService);
+
+  // Methods to implement
+  abstract connect(): Promise<void> | void;
+  abstract close(): Promise<void> | void;
+
+  // Built-in methods
+  get(name?: string): T;
+  protected set(connection: T, name?: string): void;
+  dispose(): Promise<void>;
+}
+```
+
+### BaseRepository
+
+The `BaseRepository` class provides a foundation for implementing the repository pattern with database access.
+
+**Source**: See `packages/app-db/src/repository/index.ts:4`
+
+```typescript
+abstract class BaseRepository<T> {
+  protected readonly source?: string;
+
+  constructor(database?: DatabaseService<T>);
+
+  protected get db(): T;
+}
+```
+
+## Creating a Database Service
+
+Extend `DatabaseService` to create a custom database service:
+
+```typescript
+import { DatabaseService, type DatabaseConfig } from "@resolid/app-db";
+import { drizzle, type PostgresJsDatabase } from "drizzle-orm/postgres-js";
+import postgres from "postgres";
+import type { Emitter } from "@resolid/event";
+import type { LogService } from "@resolid/app-log";
+import * as schema from "./schema";
+
+type PostgresConfig = DatabaseConfig<typeof schema, string>;
+type PostgresDb = PostgresJsDatabase<typeof schema>;
+
+class PostgresService extends DatabaseService<PostgresDb, typeof schema, PostgresConfig> {
+  async connect(): Promise<void> {
+    // Single connection
+    if (this.config.connection) {
+      const client = postgres(this.config.connection);
+      const db = drizzle(client, {
+        schema,
+        ...this.config.drizzle,
+      });
+      
+      this.set(db); // Store as "main" connection
+      this.logger?.info("Database connected");
+      return;
+    }
+
+    // Multiple connections
+    if (this.config.connections) {
+      for (const { name, config } of this.config.connections) {
+        const client = postgres(config);
+        const db = drizzle(client, {
+          schema,
+          ...this.config.drizzle,
+        });
+        
+        this.set(db, name || "main");
+        this.logger?.info(`Database connected: ${name || "main"}`);
+      }
+    }
+  }
+
+  async close(): Promise<void> {
+    // Close all connections
+    for (const [name, db] of this.connections) {
+      await db.$client.end();
+      this.logger?.info(`Database connection closed: ${name}`);
+    }
+  }
+}
+```
+
+## Database Configuration
+
+Configure your database service with connection details:
+
+```typescript
+import type { DatabaseConfig } from "@resolid/app-db";
+import * as schema from "./schema";
+
+// Single connection
+const singleDbConfig: DatabaseConfig<typeof schema, string> = {
+  connection: "postgresql://user:password@localhost:5432/mydb",
+  drizzle: {
+    logger: true, // Enable Drizzle query logging
+  },
+};
+
+// Multiple connections
+const multiDbConfig: DatabaseConfig<typeof schema, string> = {
+  connections: [
+    {
+      name: "main",
+      config: "postgresql://user:password@localhost:5432/main",
+    },
+    {
+      name: "analytics",
+      config: "postgresql://user:password@localhost:5432/analytics",
+    },
+  ],
+  drizzle: {
+    logger: true,
+  },
+};
+```
+
+**DatabaseConfig Type** (see `packages/app-db/src/service/index.ts:5`):
+```typescript
+type DatabaseConfig<S extends Record<string, unknown>, C = unknown> = (
+  | { connections: { name?: string; config: C }[]; connection?: never }
+  | { connection: C; connections?: never }
+) & {
+  drizzle?: DrizzleConfig<S>;
+};
+```
+
+## Implementing Repositories
+
+Create repositories to encapsulate database operations:
+
+```typescript
+import { BaseRepository } from "@resolid/app-db";
+import { eq } from "drizzle-orm";
+import { users } from "./schema";
+import type { PostgresDb } from "./postgres-service";
+
+interface User {
+  id: number;
+  name: string;
+  email: string;
+}
+
+class UserRepository extends BaseRepository<PostgresDb> {
+  async findById(id: number): Promise<User | undefined> {
+    const [user] = await this.db
+      .select()
+      .from(users)
+      .where(eq(users.id, id))
+      .limit(1);
+    
+    return user;
+  }
+
+  async findByEmail(email: string): Promise<User | undefined> {
+    const [user] = await this.db
+      .select()
+      .from(users)
+      .where(eq(users.email, email))
+      .limit(1);
+    
+    return user;
+  }
+
+  async create(data: Omit<User, "id">): Promise<User> {
+    const [user] = await this.db
+      .insert(users)
+      .values(data)
+      .returning();
+    
+    return user;
+  }
+
+  async update(id: number, data: Partial<User>): Promise<User> {
+    const [user] = await this.db
+      .update(users)
+      .set(data)
+      .where(eq(users.id, id))
+      .returning();
+    
+    return user;
+  }
+
+  async delete(id: number): Promise<void> {
+    await this.db
+      .delete(users)
+      .where(eq(users.id, id));
+  }
+
+  async findAll(): Promise<User[]> {
+    return this.db.select().from(users);
+  }
+}
+```
+
+## Using with Dependency Injection
+
+Integrate database services and repositories with the DI container:
+
+```typescript
+import { Container } from "@resolid/di";
+import { Emitter } from "@resolid/event";
+import { LogService } from "@resolid/app-log";
+import { PostgresService } from "./postgres-service";
+import { UserRepository } from "./user-repository";
+
+const container = new Container();
+
+// Register dependencies
+container.add({
+  token: Emitter,
+  factory: () => new Emitter(),
+});
+
+container.add({
+  token: LogService,
+  factory: () => new LogService(),
+});
+
+// Register database service
+container.add({
+  token: PostgresService,
+  factory: () => {
+    const emitter = inject(Emitter);
+    const logger = inject(LogService, { optional: true });
+    
+    return new PostgresService(
+      {
+        connection: process.env.DATABASE_URL,
+        drizzle: { logger: true },
+      },
+      emitter,
+      logger
+    );
+  },
+});
+
+// Register repositories
+container.add({
+  token: UserRepository,
+  factory: () => new UserRepository(inject(PostgresService)),
+});
+
+// Initialize database
+const db = container.get(PostgresService);
+await db.connect();
+
+// Use repository
+const userRepo = container.get(UserRepository);
+const user = await userRepo.findById(1);
+```
+
+## Multiple Database Connections
+
+Work with multiple database connections:
+
+```typescript
+class MultiDbRepository extends BaseRepository<PostgresDb> {
+  // Use the default "main" connection
+  async getUser(id: number): Promise<User | undefined> {
+    return this.db.select().from(users).where(eq(users.id, id));
+  }
+}
+
+// Specify a different connection
+class AnalyticsRepository extends BaseRepository<PostgresDb> {
+  protected readonly source = "analytics";
+
+  async trackEvent(event: Event): Promise<void> {
+    await this.db.insert(events).values(event);
+  }
+}
+```
+
+## Schema Definition
+
+Define your database schema using Drizzle:
+
+```typescript
+// schema.ts
+import { pgTable, serial, text, timestamp, varchar } from "drizzle-orm/pg-core";
+
+export const users = pgTable("users", {
+  id: serial("id").primaryKey(),
+  name: varchar("name", { length: 255 }).notNull(),
+  email: varchar("email", { length: 255 }).notNull().unique(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const posts = pgTable("posts", {
+  id: serial("id").primaryKey(),
+  title: varchar("title", { length: 255 }).notNull(),
+  content: text("content").notNull(),
+  authorId: serial("author_id").references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+```
+
+## Common Patterns
+
+### Transaction Support
+
+Implement transactions using Drizzle's transaction API:
+
+```typescript
+class OrderRepository extends BaseRepository<PostgresDb> {
+  async createOrderWithItems(
+    order: NewOrder,
+    items: NewOrderItem[]
+  ): Promise<Order> {
+    return this.db.transaction(async (tx) => {
+      // Create order
+      const [newOrder] = await tx
+        .insert(orders)
+        .values(order)
+        .returning();
+
+      // Create order items
+      await tx.insert(orderItems).values(
+        items.map(item => ({ ...item, orderId: newOrder.id }))
+      );
+
+      return newOrder;
+    });
+  }
+}
+```
+
+### Query Building
+
+Build complex queries with Drizzle's query builder:
+
+```typescript
+import { and, eq, gte, like } from "drizzle-orm";
+
+class PostRepository extends BaseRepository<PostgresDb> {
+  async search({
+    authorId,
+    keyword,
+    since,
+  }: {
+    authorId?: number;
+    keyword?: string;
+    since?: Date;
+  }): Promise<Post[]> {
+    const conditions = [];
+
+    if (authorId) {
+      conditions.push(eq(posts.authorId, authorId));
+    }
+
+    if (keyword) {
+      conditions.push(like(posts.title, `%${keyword}%`));
+    }
+
+    if (since) {
+      conditions.push(gte(posts.createdAt, since));
+    }
+
+    return this.db
+      .select()
+      .from(posts)
+      .where(and(...conditions));
+  }
+}
+```
+
+### Pagination
+
+Implement pagination for large datasets:
+
+```typescript
+interface PaginationOptions {
+  page: number;
+  pageSize: number;
+}
+
+interface PaginatedResult<T> {
+  data: T[];
+  total: number;
+  page: number;
+  pageSize: number;
+  totalPages: number;
+}
+
+class UserRepository extends BaseRepository<PostgresDb> {
+  async paginate(
+    options: PaginationOptions
+  ): Promise<PaginatedResult<User>> {
+    const { page, pageSize } = options;
+    const offset = (page - 1) * pageSize;
+
+    // Get total count
+    const [{ count }] = await this.db
+      .select({ count: sql<number>`count(*)` })
+      .from(users);
+
+    // Get paginated data
+    const data = await this.db
+      .select()
+      .from(users)
+      .limit(pageSize)
+      .offset(offset);
+
+    return {
+      data,
+      total: Number(count),
+      page,
+      pageSize,
+      totalPages: Math.ceil(Number(count) / pageSize),
+    };
+  }
+}
+```
+
+### Soft Deletes
+
+Implement soft delete functionality:
+
+```typescript
+import { timestamp } from "drizzle-orm/pg-core";
+import { isNull } from "drizzle-orm";
+
+// Add deletedAt to schema
+export const users = pgTable("users", {
+  id: serial("id").primaryKey(),
+  name: varchar("name", { length: 255 }).notNull(),
+  email: varchar("email", { length: 255 }).notNull(),
+  deletedAt: timestamp("deleted_at"),
+});
+
+class UserRepository extends BaseRepository<PostgresDb> {
+  // Override findById to exclude soft-deleted
+  async findById(id: number): Promise<User | undefined> {
+    const [user] = await this.db
+      .select()
+      .from(users)
+      .where(and(
+        eq(users.id, id),
+        isNull(users.deletedAt)
+      ))
+      .limit(1);
+    
+    return user;
+  }
+
+  // Soft delete
+  async softDelete(id: number): Promise<void> {
+    await this.db
+      .update(users)
+      .set({ deletedAt: new Date() })
+      .where(eq(users.id, id));
+  }
+
+  // Restore soft-deleted
+  async restore(id: number): Promise<void> {
+    await this.db
+      .update(users)
+      .set({ deletedAt: null })
+      .where(eq(users.id, id));
+  }
+
+  // Hard delete
+  async hardDelete(id: number): Promise<void> {
+    await this.db
+      .delete(users)
+      .where(eq(users.id, id));
+  }
+}
+```
+
+### Relationships
+
+Query related data efficiently:
+
+```typescript
+class PostRepository extends BaseRepository<PostgresDb> {
+  async getPostWithAuthor(id: number): Promise<PostWithAuthor | undefined> {
+    const [result] = await this.db
+      .select({
+        post: posts,
+        author: users,
+      })
+      .from(posts)
+      .innerJoin(users, eq(posts.authorId, users.id))
+      .where(eq(posts.id, id))
+      .limit(1);
+
+    if (!result) return undefined;
+
+    return {
+      ...result.post,
+      author: result.author,
+    };
+  }
+
+  async getPostsWithAuthors(): Promise<PostWithAuthor[]> {
+    const results = await this.db
+      .select({
+        post: posts,
+        author: users,
+      })
+      .from(posts)
+      .innerJoin(users, eq(posts.authorId, users.id));
+
+    return results.map(({ post, author }) => ({
+      ...post,
+      author,
+    }));
+  }
+}
+```
+
+## Resource Cleanup
+
+Always clean up database connections when shutting down:
+
+```typescript
+const db = container.get(PostgresService);
+
+try {
+  await db.connect();
+  
+  // Application logic
+  
+} finally {
+  await db.dispose(); // Closes all connections
+}
+```
+
+## API Reference
+
+### DatabaseService Class
+
+See source at `packages/app-db/src/service/index.ts:12`
+
+```typescript
+abstract class DatabaseService<T, S, C> {
+  protected readonly config: C;
+  protected readonly emitter: Emitter;
+  protected readonly logger?: LogService;
+  protected readonly connections: Map<string, T>;
+
+  constructor(
+    config: C,
+    emitter: Emitter,
+    logger?: LogService
+  );
+
+  // Abstract methods to implement
+  abstract connect(): Promise<void> | void;
+  abstract close(): Promise<void> | void;
+
+  // Get a database connection
+  get(name?: string): T;
+
+  // Store a database connection
+  protected set(connection: T, name?: string): void;
+
+  // Dispose all connections
+  dispose(): Promise<void>;
+}
+```
+
+### BaseRepository Class
+
+See source at `packages/app-db/src/repository/index.ts:4`
+
+```typescript
+abstract class BaseRepository<T> {
+  protected readonly source?: string;
+
+  constructor(database?: DatabaseService<T>);
+
+  // Access the database instance
+  protected get db(): T;
+}
+```
+
+## Best Practices
+
+### 1. Use the Repository Pattern
+
+```typescript
+// Good: Encapsulate database logic in repositories
+class UserRepository extends BaseRepository<PostgresDb> {
+  async findByEmail(email: string): Promise<User | undefined> {
+    // Database logic here
+  }
+}
+
+// Avoid: Direct database access in business logic
+const user = await db.select().from(users).where(eq(users.email, email));
+```
+
+### 2. Handle Errors Properly
+
+```typescript
+class UserRepository extends BaseRepository<PostgresDb> {
+  async create(data: NewUser): Promise<User> {
+    try {
+      const [user] = await this.db.insert(users).values(data).returning();
+      return user;
+    } catch (error) {
+      if (error.code === "23505") { // Unique violation
+        throw new Error("User with this email already exists");
+      }
+      throw error;
+    }
+  }
+}
+```
+
+### 3. Use Transactions for Multiple Operations
+
+```typescript
+// Good: Atomic operations in transaction
+await this.db.transaction(async (tx) => {
+  await tx.insert(orders).values(order);
+  await tx.insert(orderItems).values(items);
+});
+
+// Avoid: Separate operations without transaction
+await this.db.insert(orders).values(order);
+await this.db.insert(orderItems).values(items); // May fail, leaving inconsistent state
+```
+
+### 4. Use Type-Safe Queries
+
+```typescript
+// Good: Fully typed queries
+const user = await this.db
+  .select()
+  .from(users)
+  .where(eq(users.id, id));
+
+// Avoid: Raw SQL without types
+const user = await this.db.execute(sql`SELECT * FROM users WHERE id = ${id}`);
+```
+
+### 5. Close Connections on Shutdown
+
+```typescript
+process.on("SIGTERM", async () => {
+  await db.dispose();
+  process.exit(0);
+});
+```
+
+## Drizzle ORM Resources
+
+For more information on Drizzle ORM features:
+
+- [Drizzle ORM Documentation](https://orm.drizzle.team)
+- [Drizzle Kit Documentation](https://orm.drizzle.team/kit-docs/overview)
+- [Drizzle GitHub Repository](https://github.com/drizzle-team/drizzle-orm)
+
+## Related Resources
+
+- [Source code on GitHub](https://github.com/resolid/framework/tree/main/packages/app-db)
+- [npm package](https://www.npmjs.com/package/@resolid/app-db)

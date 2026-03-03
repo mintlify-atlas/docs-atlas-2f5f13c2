@@ -1,0 +1,314 @@
+---
+title: 'Cacher'
+description: 'Cache manager class for storing and retrieving data'
+---
+
+## Overview
+
+The `Cacher` class provides a unified interface for caching data with support for multiple storage backends through the `CacheStore` interface. It handles serialization, deserialization, TTL (time-to-live), and batch operations.
+
+## Class: Cacher
+
+### Constructor
+
+```typescript
+new Cacher(options?: CacheOptions)
+```
+
+<ParamField path="options" type="CacheOptions">
+  Configuration options for the cacher instance
+</ParamField>
+
+<ParamField path="options.store" type="CacheStore">
+  The cache store implementation to use. Defaults to `NullCache` (no-op cache).
+</ParamField>
+
+<ParamField path="options.defaultTtl" type="number">
+  Default time-to-live in seconds for cached items. If not specified, items may be cached indefinitely (depending on the store implementation).
+</ParamField>
+
+**Example:**
+
+```typescript
+import { Cacher } from '@resolid/cache';
+import { MemoryCache } from '@resolid/cache/stores';
+
+const cacher = new Cacher({
+  store: new MemoryCache(),
+  defaultTtl: 3600 // 1 hour default TTL
+});
+```
+
+## Methods
+
+### get()
+
+Retrieves a value from the cache.
+
+```typescript
+async get<T>(key: string, defaultValue?: T): Promise<T | undefined>
+```
+
+<ParamField path="key" type="string" required>
+  The cache key to retrieve
+</ParamField>
+
+<ParamField path="defaultValue" type="T">
+  Optional default value to return if the key is not found
+</ParamField>
+
+<ResponseField name="return" type="Promise<T | undefined>">
+  The cached value, default value, or undefined if not found
+</ResponseField>
+
+**Example:**
+
+```typescript
+const user = await cacher.get('user:123');
+const settings = await cacher.get('settings', { theme: 'dark' });
+```
+
+### set()
+
+Stores a value in the cache.
+
+```typescript
+async set<T>(key: string, value: T, ttl?: number): Promise<boolean>
+```
+
+<ParamField path="key" type="string" required>
+  The cache key to store the value under
+</ParamField>
+
+<ParamField path="value" type="T" required>
+  The value to cache. Will be JSON-serialized before storage.
+</ParamField>
+
+<ParamField path="ttl" type="number">
+  Time-to-live in seconds. Overrides the default TTL if provided.
+</ParamField>
+
+<ResponseField name="return" type="Promise<boolean>">
+  Returns `true` if the operation was successful, `false` otherwise
+</ResponseField>
+
+**Example:**
+
+```typescript
+await cacher.set('user:123', { name: 'Alice', email: 'alice@example.com' });
+await cacher.set('temp:token', 'abc123', 300); // Cache for 5 minutes
+```
+
+### del()
+
+Deletes a value from the cache.
+
+```typescript
+async del(key: string): Promise<boolean>
+```
+
+<ParamField path="key" type="string" required>
+  The cache key to delete
+</ParamField>
+
+<ResponseField name="return" type="Promise<boolean>">
+  Returns `true` if the operation was successful, `false` otherwise
+</ResponseField>
+
+**Example:**
+
+```typescript
+await cacher.del('user:123');
+```
+
+### clear()
+
+Clears all values from the cache.
+
+```typescript
+async clear(): Promise<boolean>
+```
+
+<ResponseField name="return" type="Promise<boolean>">
+  Returns `true` if the operation was successful, `false` otherwise
+</ResponseField>
+
+**Example:**
+
+```typescript
+await cacher.clear();
+```
+
+### getMultiple()
+
+Retrieves multiple values from the cache at once.
+
+```typescript
+async getMultiple<T>(keys: string[], defaultValue?: T): Promise<(T | undefined)[]>
+```
+
+<ParamField path="keys" type="string[]" required>
+  Array of cache keys to retrieve
+</ParamField>
+
+<ParamField path="defaultValue" type="T">
+  Optional default value for keys that are not found
+</ParamField>
+
+<ResponseField name="return" type="Promise<(T | undefined)[]>">
+  Array of values in the same order as the keys. Missing keys return `undefined` or the default value.
+</ResponseField>
+
+**Example:**
+
+```typescript
+const [user1, user2, user3] = await cacher.getMultiple([
+  'user:1',
+  'user:2',
+  'user:3'
+]);
+```
+
+### setMultiple()
+
+Stores multiple values in the cache at once.
+
+```typescript
+async setMultiple<T>(values: Record<string, T>, ttl?: number): Promise<boolean>
+```
+
+<ParamField path="values" type="Record<string, T>" required>
+  Object mapping cache keys to values
+</ParamField>
+
+<ParamField path="ttl" type="number">
+  Time-to-live in seconds for all values
+</ParamField>
+
+<ResponseField name="return" type="Promise<boolean>">
+  Returns `true` if all operations were successful, `false` otherwise
+</ResponseField>
+
+**Example:**
+
+```typescript
+await cacher.setMultiple({
+  'user:1': { name: 'Alice' },
+  'user:2': { name: 'Bob' },
+  'user:3': { name: 'Charlie' }
+}, 3600);
+```
+
+### delMultiple()
+
+Deletes multiple values from the cache at once.
+
+```typescript
+async delMultiple(keys: string[]): Promise<boolean>
+```
+
+<ParamField path="keys" type="string[]" required>
+  Array of cache keys to delete
+</ParamField>
+
+<ResponseField name="return" type="Promise<boolean>">
+  Returns `true` if all operations were successful, `false` otherwise
+</ResponseField>
+
+**Example:**
+
+```typescript
+await cacher.delMultiple(['user:1', 'user:2', 'user:3']);
+```
+
+### has()
+
+Checks if a key exists in the cache.
+
+```typescript
+async has(key: string): Promise<boolean>
+```
+
+<ParamField path="key" type="string" required>
+  The cache key to check
+</ParamField>
+
+<ResponseField name="return" type="Promise<boolean>">
+  Returns `true` if the key exists, `false` otherwise
+</ResponseField>
+
+**Example:**
+
+```typescript
+if (await cacher.has('user:123')) {
+  console.log('User is cached');
+}
+```
+
+### dispose()
+
+Cleans up resources and closes connections to the cache store.
+
+```typescript
+async dispose(): Promise<void>
+```
+
+**Example:**
+
+```typescript
+await cacher.dispose();
+```
+
+## Type Definitions
+
+### CacheOptions
+
+```typescript
+interface CacheOptions {
+  store?: CacheStore;
+  defaultTtl?: number;
+}
+```
+
+## Usage Example
+
+```typescript
+import { Cacher } from '@resolid/cache';
+import { MemoryCache } from '@resolid/cache/stores';
+
+const cacher = new Cacher({
+  store: new MemoryCache(),
+  defaultTtl: 3600
+});
+
+// Store data
+await cacher.set('user:123', {
+  id: 123,
+  name: 'Alice',
+  email: 'alice@example.com'
+});
+
+// Retrieve data
+const user = await cacher.get('user:123');
+console.log(user); // { id: 123, name: 'Alice', email: 'alice@example.com' }
+
+// Check if exists
+if (await cacher.has('user:123')) {
+  console.log('User is cached');
+}
+
+// Batch operations
+await cacher.setMultiple({
+  'user:1': { name: 'Alice' },
+  'user:2': { name: 'Bob' }
+});
+
+const users = await cacher.getMultiple(['user:1', 'user:2']);
+
+// Cleanup
+await cacher.dispose();
+```
+
+## Source Code
+
+Location: `packages/cache/src/index.ts`

@@ -1,0 +1,275 @@
+---
+title: Extension
+description: Interface for creating modular extensions that enhance application functionality
+---
+
+## Extension Interface
+
+```typescript
+interface Extension {
+  name: string;
+  providers?: Provider[];
+  bootstrap?: BootstrapFunction;
+}
+```
+
+Extensions are modular units that can register providers and execute initialization logic when the application starts.
+
+## Properties
+
+### name
+
+```typescript
+name: string
+```
+
+<ParamField path="name" type="string" required>
+  A unique identifier for the extension.
+</ParamField>
+
+### providers
+
+```typescript
+providers?: Provider[]
+```
+
+<ParamField path="providers" type="Provider[]">
+  Optional array of dependency injection providers to register with the application container.
+  
+  Each provider typically has a `token` (the DI key) and a `factory` function (to create the service instance).
+</ParamField>
+
+### bootstrap
+
+```typescript
+bootstrap?: BootstrapFunction
+```
+
+<ParamField path="bootstrap" type="BootstrapFunction">
+  Optional function to execute when the application starts (during `app.run()`).
+  
+  Type signature:
+  ```typescript
+  type BootstrapFunction = (context: AppContext) => void | Promise<void>
+  ```
+  
+  The bootstrap function receives the [AppContext](/api/core/app-context) and can perform initialization tasks like:
+  - Setting up event listeners
+  - Connecting to databases
+  - Starting background jobs
+  - Initializing third-party services
+</ParamField>
+
+## ExtensionCreator Type
+
+```typescript
+type ExtensionCreator = (context: AppContext) => Extension
+```
+
+A function that creates an Extension dynamically based on the AppContext. This allows extensions to access application configuration and services during creation.
+
+<ParamField path="context" type="AppContext" required>
+  The application context containing configuration, container, emitter, and path resolvers.
+</ParamField>
+
+<ResponseField name="Extension" type="Extension">
+  Returns an Extension object.
+</ResponseField>
+
+## Usage Examples
+
+### Simple Extension
+
+```typescript
+import { createApp, type Extension } from '@resolid/core';
+
+const loggingExtension: Extension = {
+  name: 'logging',
+  providers: [
+    {
+      token: LOGGER,
+      factory: () => ({
+        log: (msg: string) => console.log(`[LOG] ${msg}`)
+      })
+    }
+  ],
+  bootstrap: async (context) => {
+    context.emitter.on('app:ready', () => {
+      console.log(`${context.name} is ready!`);
+    });
+  }
+};
+
+const app = await createApp({
+  name: 'MyApp',
+  extensions: [loggingExtension]
+});
+
+await app.run();
+```
+
+### Extension with Bootstrap Logic
+
+```typescript
+import type { Extension } from '@resolid/core';
+
+const databaseExtension: Extension = {
+  name: 'database',
+  providers: [
+    {
+      token: DATABASE,
+      factory: () => ({
+        client: null,
+        connect: async () => { /* ... */ },
+        disconnect: async () => { /* ... */ },
+        dispose: async function() {
+          await this.disconnect();
+        }
+      })
+    }
+  ],
+  bootstrap: async (context) => {
+    const db = context.container.get(DATABASE);
+    await db.connect();
+    
+    if (context.debug) {
+      console.log('Database connected in debug mode');
+    }
+  }
+};
+```
+
+### Extension Creator Function
+
+```typescript
+import { createApp, type ExtensionCreator } from '@resolid/core';
+
+const createMailExtension = (config: {
+  from: string;
+  smtp: string;
+}): ExtensionCreator => {
+  return (context) => ({
+    name: 'mail',
+    providers: [
+      {
+        token: MAIL_SERVICE,
+        factory: () => ({
+          send: async (to: string, subject: string, body: string) => {
+            console.log(`Sending email from ${config.from} to ${to}`);
+            console.log(`SMTP: ${config.smtp}`);
+            // Send email logic...
+          }
+        })
+      }
+    ],
+    bootstrap: async (ctx) => {
+      // Access context during bootstrap
+      const configPath = ctx.rootPath('config', 'mail-templates');
+      
+      // Set up event listeners
+      ctx.emitter.on('user:registered', async (user) => {
+        const mailService = ctx.container.get(MAIL_SERVICE);
+        await mailService.send(
+          user.email,
+          'Welcome!',
+          'Thanks for registering'
+        );
+      });
+      
+      if (ctx.debug) {
+        console.log('Mail extension initialized');
+        console.log('Template path:', configPath);
+      }
+    }
+  });
+};
+
+const app = await createApp({
+  name: 'MyApp',
+  extensions: [
+    createMailExtension({
+      from: 'noreply@example.com',
+      smtp: 'smtp.example.com'
+    })
+  ]
+});
+
+await app.run();
+```
+
+### Extension with Multiple Providers
+
+```typescript
+import type { Extension } from '@resolid/core';
+
+const cacheExtension: Extension = {
+  name: 'cache',
+  providers: [
+    {
+      token: CACHE_STORE,
+      factory: () => new Map()
+    },
+    {
+      token: CACHE_SERVICE,
+      factory: (container) => {
+        const store = container.get(CACHE_STORE);
+        return {
+          get: (key: string) => store.get(key),
+          set: (key: string, value: any) => store.set(key, value),
+          delete: (key: string) => store.delete(key),
+          clear: () => store.clear()
+        };
+      }
+    }
+  ],
+  bootstrap: async (context) => {
+    const cache = context.container.get(CACHE_SERVICE);
+    
+    // Warm up cache with initial data
+    cache.set('app:name', context.name);
+    cache.set('app:started', new Date().toISOString());
+  }
+};
+```
+
+## Bootstrap Execution Order
+
+All bootstrap functions from registered extensions are executed in parallel when `app.run()` is called:
+
+```typescript
+const app = await createApp({
+  name: 'MyApp',
+  extensions: [
+    {
+      name: 'extension-a',
+      bootstrap: async () => {
+        console.log('A: Starting');
+        await delay(100);
+        console.log('A: Complete');
+      }
+    },
+    {
+      name: 'extension-b',
+      bootstrap: async () => {
+        console.log('B: Starting');
+        await delay(50);
+        console.log('B: Complete');
+      }
+    }
+  ]
+});
+
+await app.run();
+// Output:
+// A: Starting
+// B: Starting
+// B: Complete
+// A: Complete
+// (All bootstraps run in parallel)
+```
+
+## See Also
+
+- [createApp](/api/core/create-app) - Factory function for creating applications with extensions
+- [AppContext](/api/core/app-context) - Context object passed to bootstrap functions and extension creators
+- [App](/api/core/app) - The App class that manages extensions

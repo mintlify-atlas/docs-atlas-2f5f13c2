@@ -1,0 +1,488 @@
+---
+title: 'Dependency Injection'
+description: 'Complete guide to @resolid/di - Container, providers, scopes, and advanced features'
+---
+
+The `@resolid/di` package provides a lightweight, fully-typed dependency injection container for TypeScript. It helps you manage dependencies, control object lifecycles, and build testable applications.
+
+## Installation
+
+```bash
+pnpm add @resolid/di
+# or
+npm install @resolid/di
+# or
+yarn add @resolid/di
+# or
+bun add @resolid/di
+```
+
+## Basic Usage
+
+The fundamental workflow involves creating a container, registering providers, and resolving dependencies:
+
+```typescript
+import { Container, inject } from "@resolid/di";
+
+class LogService {
+  log(message: string): void {
+    console.log(`[LOG]: ${message}`);
+  }
+}
+
+class UserService {
+  private logger: LogService;
+
+  constructor(logger: LogService) {
+    this.logger = logger;
+  }
+
+  createUser(name: string): void {
+    this.logger.log(`Creating user: ${name}`);
+  }
+}
+
+const container = new Container();
+
+// Register services
+container.add({
+  token: LogService,
+  factory: () => new LogService(),
+});
+
+container.add({
+  token: UserService,
+  factory: () => new UserService(inject(LogService)),
+});
+
+// Resolve and use
+const userService = container.get(UserService);
+userService.createUser("John Doe"); // Output: [LOG]: Creating user: John Doe
+```
+
+## Core Concepts
+
+### Container
+
+The `Container` class is the main orchestrator for dependency injection. It stores providers and manages instance lifecycles.
+
+**Methods:**
+
+- `add(provider: Provider): void` - Register a provider
+- `get<T>(token: Token<T>): T` - Resolve a dependency
+- `dispose(): Promise<void>` - Clean up all singleton instances
+
+### Tokens
+
+Tokens uniquely identify dependencies in the container. They can be:
+
+- **Classes**: Use the class constructor as the token
+- **Symbols**: Use `Symbol()` for abstract dependencies
+- **Strings**: Use string identifiers (less type-safe)
+
+```typescript
+// Class token
+container.add({
+  token: LogService,
+  factory: () => new LogService(),
+});
+
+// Symbol token
+const API_KEY = Symbol("API_KEY");
+container.add({
+  token: API_KEY,
+  factory: () => process.env.API_KEY,
+});
+```
+
+### Providers
+
+A provider defines how to create an instance of a dependency:
+
+```typescript
+interface Provider<T = unknown> {
+  token: Token<T>;        // Unique identifier
+  factory: () => T;       // Factory function
+  scope?: Scope;          // "singleton" | "transient"
+}
+```
+
+### The `inject()` Function
+
+The `inject()` function resolves dependencies within a factory function. It must be called inside a provider's factory:
+
+```typescript
+container.add({
+  token: UserService,
+  factory: () => new UserService(inject(LogService)),
+});
+```
+
+## Scopes
+
+Scopes control the lifecycle of resolved dependencies.
+
+### Singleton Scope (Default)
+
+Only one instance is created and shared across all resolutions:
+
+```typescript
+container.add({
+  token: LogService,
+  factory: () => new LogService(),
+  scope: "singleton", // Default
+});
+
+const logger1 = container.get(LogService);
+const logger2 = container.get(LogService);
+console.log(logger1 === logger2); // true
+```
+
+### Transient Scope
+
+A new instance is created for every resolution:
+
+```typescript
+const REQUEST_ID = Symbol("REQUEST_ID");
+
+container.add({
+  token: REQUEST_ID,
+  factory: () => Math.random(),
+  scope: "transient",
+});
+
+const id1 = container.get(REQUEST_ID);
+const id2 = container.get(REQUEST_ID);
+console.log(id1 === id2); // false
+```
+
+## Advanced Features
+
+### Optional Dependencies
+
+Resolve dependencies that may not be registered:
+
+```typescript
+class AnalyticsService {
+  private logger?: LogService;
+
+  constructor(logger?: LogService) {
+    this.logger = logger;
+  }
+
+  track(event: string): void {
+    if (this.logger) {
+      this.logger.log(`Analytics: ${event}`);
+    } else {
+      console.log(`Analytics (no logger): ${event}`);
+    }
+  }
+}
+
+container.add({
+  token: AnalyticsService,
+  factory: () => new AnalyticsService(inject(LogService, { optional: true })),
+});
+
+const analytics = container.get(AnalyticsService);
+analytics.track("page_view"); // Works even if LogService is not registered
+```
+
+### Lazy Resolution
+
+Defer dependency resolution until it's actually needed:
+
+```typescript
+class ReportService {
+  constructor(private getLogger: () => LogService) {}
+
+  generateReport(): void {
+    // Logger is resolved only when this method is called
+    const logger = this.getLogger();
+    logger.log("Report generated");
+  }
+}
+
+container.add({
+  token: LogService,
+  factory: () => new LogService(),
+});
+
+container.add({
+  token: ReportService,
+  factory: () => new ReportService(inject(LogService, { lazy: true })),
+});
+
+const reportService = container.get(ReportService);
+reportService.generateReport(); // Logger created here
+```
+
+**Benefits:**
+- Breaks circular dependencies
+- Improves startup performance
+- Enables conditional dependency usage
+
+### Circular Dependency Detection
+
+The container automatically detects and prevents circular dependencies:
+
+```typescript
+class ApiService {
+  constructor(private auth: AuthService) {}
+}
+
+class AuthService {
+  constructor(private api: ApiService) {}
+}
+
+container.add({
+  token: ApiService,
+  factory: () => new ApiService(inject(AuthService)),
+});
+
+container.add({
+  token: AuthService,
+  factory: () => new AuthService(inject(ApiService)),
+});
+
+// Throws: Circular dependency detected ApiService -> AuthService -> ApiService
+container.get(ApiService);
+```
+
+**Solution**: Use lazy resolution:
+
+```typescript
+class ApiService {
+  constructor(private getAuth: () => AuthService) {}
+  
+  makeRequest() {
+    const auth = this.getAuth();
+    // Use auth...
+  }
+}
+
+container.add({
+  token: ApiService,
+  factory: () => new ApiService(inject(AuthService, { lazy: true })),
+});
+```
+
+### Disposable Resources
+
+Manage resource cleanup with the `dispose()` method:
+
+```typescript
+class DatabaseConnection {
+  constructor() {
+    console.log("Database connection opened");
+  }
+
+  async dispose(): Promise<void> {
+    console.log("Database connection closed");
+    // Close connection, release resources, etc.
+  }
+}
+
+container.add({
+  token: DatabaseConnection,
+  factory: () => new DatabaseConnection(),
+});
+
+const db = container.get(DatabaseConnection);
+// Use database...
+
+// Clean up all singleton instances
+await container.dispose();
+// Output: Database connection closed
+```
+
+**Note**: Only singleton instances are disposed. Transient instances must be managed manually.
+
+## API Reference
+
+### Container Class
+
+See source at `packages/di/src/container/index.ts:12`
+
+```typescript
+class Container implements Resolver, Disposable {
+  add(provider: Provider): void;
+  
+  get<T>(token: Token<T>): T;
+  get<T>(token: Token<T>, options: { optional: true }): T | undefined;
+  get<T>(token: Token<T>, options: { lazy: true }): () => T;
+  get<T>(token: Token<T>, options: { lazy: true; optional: true }): () => T | undefined;
+  
+  dispose(): Promise<void>;
+}
+```
+
+### inject Function
+
+See source at `packages/di/src/inject/index.ts:4`
+
+```typescript
+function inject<T>(token: Token<T>): T;
+function inject<T>(token: Token<T>, options: { optional: true }): T | undefined;
+function inject<T>(token: Token<T>, options: { lazy: true }): () => T;
+function inject<T>(
+  token: Token<T>,
+  options: { lazy: true; optional: true }
+): () => T | undefined;
+```
+
+### Types
+
+```typescript
+// Token can be a class, symbol, or string
+type Token<T = unknown> = abstract new (...args: any[]) => T | symbol | string;
+
+// Scope determines instance lifecycle
+type Scope = "singleton" | "transient";
+
+// Provider defines how to create instances
+interface Provider<T = unknown> {
+  token: Token<T>;
+  factory: () => T;
+  scope?: Scope;
+}
+```
+
+## Best Practices
+
+### 1. Use Class Tokens When Possible
+
+```typescript
+// Good: Type-safe and refactor-friendly
+container.add({
+  token: UserService,
+  factory: () => new UserService(inject(LogService)),
+});
+
+// Avoid: Strings are not type-safe
+container.add({
+  token: "userService",
+  factory: () => new UserService(inject("logService")),
+});
+```
+
+### 2. Prefer Singleton for Services
+
+Most services should be singletons to share state and reduce memory usage:
+
+```typescript
+container.add({
+  token: CacheService,
+  factory: () => new CacheService(),
+  scope: "singleton", // Default - can be omitted
+});
+```
+
+### 3. Use Transient for Stateful Objects
+
+Use transient scope for objects that hold per-request state:
+
+```typescript
+container.add({
+  token: RequestContext,
+  factory: () => new RequestContext(),
+  scope: "transient",
+});
+```
+
+### 4. Implement dispose() for Resources
+
+Always implement `dispose()` for services that manage resources:
+
+```typescript
+class FileService {
+  private handles: FileHandle[] = [];
+
+  async dispose(): Promise<void> {
+    await Promise.all(this.handles.map(h => h.close()));
+  }
+}
+```
+
+### 5. Use Lazy Resolution for Circular Dependencies
+
+Break circular dependencies with lazy injection:
+
+```typescript
+container.add({
+  token: ServiceA,
+  factory: () => new ServiceA(inject(ServiceB, { lazy: true })),
+});
+```
+
+## Common Patterns
+
+### Factory Pattern
+
+Create multiple instances with different configurations:
+
+```typescript
+const HTTP_CLIENT_FACTORY = Symbol("HTTP_CLIENT_FACTORY");
+
+container.add({
+  token: HTTP_CLIENT_FACTORY,
+  factory: () => (baseUrl: string) => new HttpClient(baseUrl),
+});
+
+const createClient = container.get(HTTP_CLIENT_FACTORY);
+const apiClient = createClient("https://api.example.com");
+const authClient = createClient("https://auth.example.com");
+```
+
+### Configuration Object
+
+Inject configuration as dependencies:
+
+```typescript
+const APP_CONFIG = Symbol("APP_CONFIG");
+
+container.add({
+  token: APP_CONFIG,
+  factory: () => ({
+    apiUrl: process.env.API_URL,
+    timeout: 5000,
+  }),
+});
+
+class ApiService {
+  constructor(private config: typeof APP_CONFIG) {}
+}
+
+container.add({
+  token: ApiService,
+  factory: () => new ApiService(inject(APP_CONFIG)),
+});
+```
+
+### Testing with Mock Dependencies
+
+Easily replace dependencies for testing:
+
+```typescript
+// Production
+container.add({
+  token: LogService,
+  factory: () => new LogService(),
+});
+
+// Testing
+class MockLogService {
+  log = vi.fn();
+}
+
+const testContainer = new Container();
+testContainer.add({
+  token: LogService,
+  factory: () => new MockLogService() as any,
+});
+```
+
+## Related Resources
+
+- [Source code on GitHub](https://github.com/resolid/framework/tree/main/packages/di)
+- [npm package](https://www.npmjs.com/package/@resolid/di)

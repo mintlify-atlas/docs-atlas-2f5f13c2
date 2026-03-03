@@ -1,0 +1,315 @@
+---
+title: 'Development Config'
+description: 'Configure development server and build settings'
+---
+
+## Overview
+
+The `defineDevConfig` function provides a unified configuration interface for the Resolid development server, integrating with React Router and Vite.
+
+## Function: defineDevConfig()
+
+Defines configuration for the development server and build process.
+
+```typescript
+function defineDevConfig(options?: DevConfigOptions): DevConfig
+```
+
+<ParamField path="options" type="DevConfigOptions">
+  Configuration options for development
+</ParamField>
+
+<ParamField path="options.platform" type="ServerPlatform" default="'node'">
+  Target deployment platform: `'node'`, `'vercel'`, or `'netlify'`
+</ParamField>
+
+<ParamField path="options.nodeVersion" type="NodeVersion" default="22">
+  Target Node.js version for the build
+</ParamField>
+
+<ParamField path="options.entryFile" type="string" default="'server.ts'">
+  Server entry file path
+</ParamField>
+
+<ParamField path="options.appDirectory" type="string" default="'src'">
+  Application source directory
+</ParamField>
+
+<ParamField path="options.includeFiles" type="string[]" default="[]">
+  Additional files to include in the build
+</ParamField>
+
+<ParamField path="options.reactRouterConfig" type="ReactRouterConfig" default="{}">
+  React Router configuration options
+</ParamField>
+
+<ParamField path="options.devExclude" type="(string | RegExp)[]">
+  Patterns to exclude from development mode processing
+</ParamField>
+
+<ResponseField name="return" type="DevConfig">
+  Configuration object containing Vite plugin options and React Router config
+</ResponseField>
+
+## Configuration Options
+
+### Platform
+
+Specify the target deployment platform:
+
+```typescript
+import { defineDevConfig } from '@resolid/dev';
+
+export default defineDevConfig({
+  platform: 'node' // or 'vercel' | 'netlify'
+});
+```
+
+Each platform applies specific optimizations and configurations:
+
+- **node**: Standard Node.js server
+- **vercel**: Vercel serverless functions
+- **netlify**: Netlify serverless functions
+
+### Node Version
+
+Set the target Node.js version:
+
+```typescript
+export default defineDevConfig({
+  nodeVersion: 20 // or 18, 22
+});
+```
+
+### Entry File
+
+Specify the server entry file:
+
+```typescript
+export default defineDevConfig({
+  entryFile: 'server.ts' // or 'src/server/index.ts'
+});
+```
+
+### App Directory
+
+Define the application source directory:
+
+```typescript
+export default defineDevConfig({
+  appDirectory: 'src' // or 'app'
+});
+```
+
+### Include Files
+
+Add additional files to include in the build:
+
+```typescript
+export default defineDevConfig({
+  includeFiles: [
+    'package.json',
+    'drizzle.config.ts',
+    '.env.production'
+  ]
+});
+```
+
+### React Router Config
+
+Pass additional React Router configuration:
+
+```typescript
+export default defineDevConfig({
+  reactRouterConfig: {
+    basename: '/app',
+    buildDirectory: 'build',
+    publicPath: '/public',
+    serverBuildFile: 'index.js'
+  }
+});
+```
+
+### Dev Exclude
+
+Exclude patterns from development processing:
+
+```typescript
+export default defineDevConfig({
+  devExclude: [
+    /node_modules/,
+    'dist',
+    '.cache'
+  ]
+});
+```
+
+## Type Definitions
+
+### DevConfigOptions
+
+```typescript
+type DevConfigOptions = Partial<VitePluginOptions> & {
+  appDirectory?: string;
+  includeFiles?: string[];
+  reactRouterConfig?: ReactRouterConfig;
+}
+```
+
+### VitePluginOptions
+
+```typescript
+interface VitePluginOptions {
+  platform: ServerPlatform;
+  nodeVersion: NodeVersion;
+  entryFile: string;
+  devExclude?: (string | RegExp)[];
+}
+```
+
+### ServerPlatform
+
+```typescript
+type ServerPlatform = 'node' | 'vercel' | 'netlify';
+```
+
+### NodeVersion
+
+```typescript
+type NodeVersion = 18 | 20 | 22;
+```
+
+### DevConfig
+
+```typescript
+interface DevConfig {
+  vitePluginOptions: VitePluginOptions;
+  reactRouterConfig: Config;
+}
+```
+
+### ReactRouterConfig
+
+```typescript
+type ReactRouterConfig = Omit<Config, 'appDirectory' | 'ssr' | 'serverModuleFormat' | 'future'> & {
+  future?: Omit<
+    Config['future'],
+    'v8_middleware' | 'v8_splitRouteModules' | 'v8_viteEnvironmentApi'
+  >;
+}
+```
+
+## Usage in react-router.config.ts
+
+```typescript
+import { defineDevConfig } from '@resolid/dev';
+import type { Config } from '@react-router/dev/config';
+
+export default defineDevConfig({
+  platform: 'node',
+  nodeVersion: 22,
+  entryFile: 'server.ts',
+  appDirectory: 'src',
+  reactRouterConfig: {
+    basename: process.env.BASE_URL || '/',
+    buildDirectory: 'build'
+  }
+}) satisfies Config;
+```
+
+## Platform Presets
+
+Each platform comes with a preset that configures:
+
+- Build output format
+- Server bundle configuration
+- Asset handling
+- Environment variables
+
+### Node Preset
+
+```typescript
+export default defineDevConfig({
+  platform: 'node',
+  nodeVersion: 22
+});
+```
+
+Configures for standard Node.js deployment with:
+- ESM module format
+- Optimized dependencies
+- Static file serving
+
+### Vercel Preset
+
+```typescript
+export default defineDevConfig({
+  platform: 'vercel',
+  nodeVersion: 20
+});
+```
+
+Configures for Vercel deployment with:
+- Serverless function output
+- Edge runtime compatibility
+- Vercel-specific optimizations
+
+### Netlify Preset
+
+```typescript
+export default defineDevConfig({
+  platform: 'netlify',
+  nodeVersion: 20
+});
+```
+
+Configures for Netlify deployment with:
+- Netlify Functions format
+- Build plugin integration
+- Netlify-specific optimizations
+
+## Complete Example
+
+```typescript
+import { defineDevConfig } from '@resolid/dev';
+import type { Config } from '@react-router/dev/config';
+
+export default defineDevConfig({
+  // Deployment platform
+  platform: process.env.PLATFORM || 'node',
+  
+  // Node.js version
+  nodeVersion: 22,
+  
+  // Server entry point
+  entryFile: 'server.ts',
+  
+  // App directory
+  appDirectory: 'src',
+  
+  // Additional files to include
+  includeFiles: [
+    'package.json',
+    'drizzle.config.ts'
+  ],
+  
+  // Exclude from dev processing
+  devExclude: [
+    /node_modules/,
+    'dist',
+    'build'
+  ],
+  
+  // React Router configuration
+  reactRouterConfig: {
+    basename: '/',
+    buildDirectory: 'build',
+    publicPath: '/public',
+    serverBuildFile: 'index.js'
+  }
+}) satisfies Config;
+```
+
+## Source Code
+
+Location: `packages/dev/src/config/index.ts`

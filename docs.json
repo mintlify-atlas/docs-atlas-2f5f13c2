@@ -1,122 +1,158 @@
 {
   "$schema": "https://mintlify.com/docs.json",
-  "theme": "mint",
-  "name": "Mint Starter Kit",
+  "name": "Resolid Framework",
+  "theme": "aspen",
   "colors": {
-    "primary": "#16A34A",
-    "light": "#07C983",
-    "dark": "#15803D"
+    "primary": "#3B82F6",
+    "light": "#60A5FA",
+    "dark": "#2563EB"
   },
-  "favicon": "/favicon.svg",
+  "navbar": {
+    "primary": {
+      "type": "github",
+      "href": "https://github.com/resolid/framework"
+    }
+  },
+  "footer": {
+    "socials": {
+      "github": "https://github.com/resolid/framework"
+    }
+  },
   "navigation": {
     "tabs": [
       {
-        "tab": "Guides",
+        "tab": "Documentation",
         "groups": [
           {
-            "group": "Getting started",
+            "group": "Get Started",
             "pages": [
-              "index",
+              "introduction",
               "quickstart",
-              "development"
+              "installation"
             ]
           },
           {
-            "group": "Customization",
+            "group": "Core Concepts",
             "pages": [
-              "essentials/settings",
-              "essentials/navigation"
+              "core/application",
+              "core/extensions",
+              "core/dependency-injection",
+              "core/events",
+              "core/configuration"
             ]
           },
           {
-            "group": "Writing content",
+            "group": "Modules",
             "pages": [
-              "essentials/markdown",
-              "essentials/code",
-              "essentials/images",
-              "essentials/reusable-snippets"
+              "modules/overview",
+              "modules/dependency-injection",
+              "modules/event-emitter",
+              "modules/cache",
+              "modules/logging",
+              "modules/database"
             ]
           },
           {
-            "group": "AI tools",
+            "group": "Development",
             "pages": [
-              "ai-tools/cursor",
-              "ai-tools/claude-code",
-              "ai-tools/windsurf"
+              "development/vite-integration",
+              "development/react-router",
+              "development/http-server",
+              "development/routing"
+            ]
+          },
+          {
+            "group": "Deployment",
+            "pages": [
+              "deployment/overview",
+              "deployment/node",
+              "deployment/vercel",
+              "deployment/netlify"
+            ]
+          },
+          {
+            "group": "Advanced",
+            "pages": [
+              "advanced/providers",
+              "advanced/scopes",
+              "advanced/disposal",
+              "advanced/circular-dependencies"
             ]
           }
         ]
       },
       {
-        "tab": "API reference",
+        "tab": "API Reference",
         "groups": [
           {
-            "group": "API documentation",
+            "group": "Core",
             "pages": [
-              "api-reference/introduction"
+              "api/core/create-app",
+              "api/core/app",
+              "api/core/extension",
+              "api/core/app-context"
             ]
           },
           {
-            "group": "Endpoint examples",
+            "group": "Dependency Injection",
             "pages": [
-              "api-reference/endpoint/get",
-              "api-reference/endpoint/create",
-              "api-reference/endpoint/delete",
-              "api-reference/endpoint/webhook"
+              "api/di/container",
+              "api/di/inject",
+              "api/di/provider",
+              "api/di/token"
+            ]
+          },
+          {
+            "group": "Event",
+            "pages": [
+              "api/event/emitter"
+            ]
+          },
+          {
+            "group": "Cache",
+            "pages": [
+              "api/cache/cacher",
+              "api/cache/cache-store"
+            ]
+          },
+          {
+            "group": "Logging",
+            "pages": [
+              "api/logging/logger",
+              "api/logging/configuration"
+            ]
+          },
+          {
+            "group": "Database",
+            "pages": [
+              "api/database/setup",
+              "api/database/providers"
+            ]
+          },
+          {
+            "group": "Development",
+            "pages": [
+              "api/dev/config",
+              "api/dev/http-server",
+              "api/dev/router",
+              "api/dev/routes"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Community",
+        "groups": [
+          {
+            "group": "Resources",
+            "pages": [
+              "community/contributing",
+              "community/code-of-conduct",
+              "community/changelog"
             ]
           }
         ]
       }
-    ],
-    "global": {
-      "anchors": [
-        {
-          "anchor": "Documentation",
-          "href": "https://mintlify.com/docs",
-          "icon": "book-open-cover"
-        },
-        {
-          "anchor": "Blog",
-          "href": "https://mintlify.com/blog",
-          "icon": "newspaper"
-        }
-      ]
-    }
-  },
-  "logo": {
-    "light": "/logo/light.svg",
-    "dark": "/logo/dark.svg"
-  },
-  "navbar": {
-    "links": [
-      {
-        "label": "Support",
-        "href": "mailto:hi@mintlify.com"
-      }
-    ],
-    "primary": {
-      "type": "button",
-      "label": "Dashboard",
-      "href": "https://dashboard.mintlify.com"
-    }
-  },
-  "contextual": {
-    "options": [
-     "copy",
-     "view",
-     "chatgpt",
-     "claude",
-     "perplexity",
-     "mcp",
-     "cursor",
-     "vscode"
-   ]
-  },
-  "footer": {
-    "socials": {
-      "x": "https://x.com/mintlify",
-      "github": "https://github.com/mintlify",
-      "linkedin": "https://linkedin.com/company/mintlify"
-    }
+    ]
   }
 }

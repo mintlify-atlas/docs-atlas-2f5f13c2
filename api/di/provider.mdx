@@ -1,0 +1,314 @@
+---
+title: Provider<T>
+description: API reference for the Provider interface in Resolid Framework's dependency injection system
+---
+
+The `Provider<T>` interface defines the configuration for registering dependencies in the container.
+
+## Import
+
+```typescript
+import type { Provider } from '@resolid/framework/di';
+```
+
+## Interface
+
+```typescript
+interface Provider<T = unknown> {
+  token: Token<T>;
+  factory: () => T;
+  scope?: Scope;
+}
+```
+
+## Properties
+
+### token
+
+```typescript
+token: Token<T>
+```
+
+The unique identifier for this dependency. Can be a class constructor, a symbol, or an object with `prototype` and `name` properties.
+
+See [Token](/api/di/token) for more details.
+
+#### Example
+
+```typescript
+// Using a class as token
+const provider: Provider<LogService> = {
+  token: LogService,
+  factory: () => new LogService(),
+};
+
+// Using a symbol as token
+const API_URL = Symbol('API_URL');
+const urlProvider: Provider<string> = {
+  token: API_URL,
+  factory: () => 'https://api.example.com',
+};
+```
+
+### factory
+
+```typescript
+factory: () => T
+```
+
+A function that creates and returns an instance of the dependency. This function is called by the container when the dependency needs to be resolved.
+
+The factory function:
+- Must return an instance of type `T`
+- Can use `inject()` to request other dependencies
+- Is executed within an injection context
+- Should not have side effects outside of instance creation
+
+#### Example
+
+```typescript
+const provider: Provider<UserService> = {
+  token: UserService,
+  factory: () => {
+    const logger = inject(LogService);
+    const db = inject(DatabaseService);
+    return new UserService(logger, db);
+  },
+};
+```
+
+### scope (optional)
+
+```typescript
+scope?: "singleton" | "transient"
+```
+
+Defines the lifecycle of the dependency. Defaults to `"singleton"` if not specified.
+
+- **`"singleton"`** (default): The factory is called once, and the same instance is returned for all subsequent requests
+- **`"transient"`**: The factory is called every time the dependency is requested, creating a new instance each time
+
+#### Example
+
+```typescript
+// Singleton (default) - shared instance
+const singletonProvider: Provider<ConfigService> = {
+  token: ConfigService,
+  factory: () => new ConfigService(),
+  scope: 'singleton', // Optional, this is the default
+};
+
+// Transient - new instance every time
+const transientProvider: Provider<RequestContext> = {
+  token: RequestContext,
+  factory: () => new RequestContext(),
+  scope: 'transient',
+};
+```
+
+## Usage
+
+### Basic Provider
+
+The simplest provider just needs a token and a factory:
+
+```typescript
+import { Container } from '@resolid/framework/di';
+
+class LogService {
+  log(message: string) {
+    console.log(message);
+  }
+}
+
+const container = new Container();
+
+container.add({
+  token: LogService,
+  factory: () => new LogService(),
+});
+
+const logger = container.get(LogService);
+logger.log('Hello!'); // Logs: Hello!
+```
+
+### Provider with Dependencies
+
+Use `inject()` in the factory to request other dependencies:
+
+```typescript
+import { inject } from '@resolid/framework/di';
+
+class DatabaseService {
+  constructor(private config: ConfigService) {}
+}
+
+class UserService {
+  constructor(
+    private db: DatabaseService,
+    private logger: LogService
+  ) {}
+}
+
+container.add({
+  token: ConfigService,
+  factory: () => new ConfigService(),
+});
+
+container.add({
+  token: DatabaseService,
+  factory: () => new DatabaseService(inject(ConfigService)),
+});
+
+container.add({
+  token: UserService,
+  factory: () => new UserService(
+    inject(DatabaseService),
+    inject(LogService)
+  ),
+});
+```
+
+### Singleton Provider
+
+Singleton scope ensures only one instance exists:
+
+```typescript
+class CacheService {
+  private cache = new Map<string, any>();
+
+  set(key: string, value: any) {
+    this.cache.set(key, value);
+  }
+
+  get(key: string) {
+    return this.cache.get(key);
+  }
+}
+
+container.add({
+  token: CacheService,
+  factory: () => new CacheService(),
+  scope: 'singleton', // Default behavior
+});
+
+const cache1 = container.get(CacheService);
+const cache2 = container.get(CacheService);
+
+console.log(cache1 === cache2); // true - same instance
+```
+
+### Transient Provider
+
+Transient scope creates a new instance each time:
+
+```typescript
+class RequestContext {
+  readonly id = Math.random();
+  readonly timestamp = Date.now();
+}
+
+container.add({
+  token: RequestContext,
+  factory: () => new RequestContext(),
+  scope: 'transient',
+});
+
+const ctx1 = container.get(RequestContext);
+const ctx2 = container.get(RequestContext);
+
+console.log(ctx1.id === ctx2.id); // false - different instances
+```
+
+### Provider with Symbol Token
+
+Use symbols for non-class dependencies:
+
+```typescript
+const API_URL = Symbol('API_URL');
+const API_KEY = Symbol('API_KEY');
+
+container.add({
+  token: API_URL,
+  factory: () => process.env.API_URL || 'https://api.example.com',
+});
+
+container.add({
+  token: API_KEY,
+  factory: () => process.env.API_KEY || 'default-key',
+});
+
+class ApiService {
+  constructor(
+    private url: string,
+    private apiKey: string
+  ) {}
+}
+
+container.add({
+  token: ApiService,
+  factory: () => new ApiService(
+    inject(API_URL),
+    inject(API_KEY)
+  ),
+});
+```
+
+### Factory with Complex Logic
+
+The factory can contain any initialization logic:
+
+```typescript
+class DatabaseService {
+  constructor(
+    private connectionString: string,
+    private poolSize: number
+  ) {}
+}
+
+const DB_CONFIG = Symbol('DB_CONFIG');
+
+interface DbConfig {
+  host: string;
+  port: number;
+  database: string;
+  poolSize: number;
+}
+
+container.add({
+  token: DB_CONFIG,
+  factory: () => ({
+    host: process.env.DB_HOST || 'localhost',
+    port: parseInt(process.env.DB_PORT || '5432'),
+    database: process.env.DB_NAME || 'app',
+    poolSize: parseInt(process.env.DB_POOL_SIZE || '10'),
+  }),
+});
+
+container.add({
+  token: DatabaseService,
+  factory: () => {
+    const config = inject<DbConfig>(DB_CONFIG);
+    const connectionString = `postgres://${config.host}:${config.port}/${config.database}`;
+    return new DatabaseService(connectionString, config.poolSize);
+  },
+});
+```
+
+## Type Safety
+
+The `Provider<T>` interface is generic, ensuring type safety between the token and factory:
+
+```typescript
+// ✅ Correct: factory returns LogService
+const validProvider: Provider<LogService> = {
+  token: LogService,
+  factory: () => new LogService(),
+};
+
+// ❌ TypeScript error: factory must return LogService
+const invalidProvider: Provider<LogService> = {
+  token: LogService,
+  factory: () => new DatabaseService(), // Error!
+};
+```
